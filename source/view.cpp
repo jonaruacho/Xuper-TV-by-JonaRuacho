@@ -75,8 +75,8 @@ void View::draw(const Catalog& c,size_t selected,const std::string& status,bool 
             text(x+16,y+std::max(12,(art_h-36)/2),icon,chosen?accent:muted,w-30,heading,45);
         }
         if(poster||channel){rect({x+9,y+8,poster?80:89,22},{16,28,39,255});text(x+12,y+9,label(e.kind,e.program_type),accent,poster?80:89,small,22);}
-        text(x+10,y+art_h+10,e.title,white,w-20,poster||channel?small:font,poster?47:channel?43:60);
-        if(!poster&&!channel)text(x+12,y+h-25,label(e.kind,e.program_type),muted,w-24,small,22);
+        text(x+10,y+art_h+10,e.display_title.empty()?e.title:e.display_title,white,w-20,poster||channel?small:font,poster?47:channel?43:60);
+        if(!poster&&!channel)text(x+12,y+h-25,e.badge.empty()?label(e.kind,e.program_type):e.badge,e.badge.empty()?muted:accent,w-24,small,22);
         if(chosen&&favorite&&channel){rect({x+w-44,y+9,32,28},accent);text(x+w-38,y+8,"*",{10,25,30,255},26,font);}
     }
     if(c.entries.empty())text(280,200,c.title=="Favoritos"?"Tus canales favoritos apareceran aqui.\nSelecciona un canal y pulsa el stick derecho para guardarlo.":"No hay contenido para mostrar.",muted,850,font,150);

@@ -17,6 +17,8 @@ struct Entry {
     std::string query{};
     int page=1;
     std::string artwork{},artwork_cache{},description{};
+    std::string show{};            // series or movie name, kept for Recientes
+    std::string display_title{},badge{}; // UI only, never persisted
 };
 struct Catalog { std::vector<Entry> entries; std::vector<std::string> warnings; std::string title{},description{},artwork{},artwork_cache{}; };
 std::string artwork_key(const std::string& url);

@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <climits>
 #include <cstdlib>
@@ -708,7 +709,9 @@ bool service_subtitle(const std::shared_ptr<ServiceSession>& s,const SubtitleSou
         unsigned char digest[16];if(mbedtls_md5_ret(reinterpret_cast<const unsigned char*>(received.data()),received.size(),digest)){error="No se pudo verificar el subtitulo.";return false;}
         const char* digits="0123456789abcdef";std::string actual;
         for(unsigned char value:digest){actual+=digits[value>>4];actual+=digits[value&15];}
-        if(actual!=sub.md5){error="El subtitulo no coincide con la huella del servicio.";return false;}
+        // The service may publish the digest in upper case.
+        std::string expected=sub.md5;std::transform(expected.begin(),expected.end(),expected.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});
+        if(actual!=expected){trace("sub:md5_mismatch");error="El subtitulo no coincide con la huella del servicio.";return false;}
     }
     data=std::move(received);return true;
 }

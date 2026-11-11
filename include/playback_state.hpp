@@ -37,11 +37,13 @@ struct PlaybackHistory {
     double position(const std::string& id)const{const auto i=positions.find(id);
         if(i==positions.end()||!i->is_number())return 0;
         const double n=i->get<double>();return std::isfinite(n)&&n>5&&n<86400?n:0;}
+    // Episodes played to the end are stored as -1 so Recientes can say "Terminado".
+    bool finished(const std::string& id)const{const auto i=positions.find(id);return i!=positions.end()&&i->is_number()&&i->get<double>()<0;}
     bool save(const std::string& id,double position_value,double speed_value,double volume_value,bool next,bool ended){
         last_error="invalid_preferences";
         if(!std::isfinite(speed_value)||!std::isfinite(volume_value))return false;
         speed=std::clamp(speed_value,0.5,2.0);volume=std::clamp(volume_value,0.0,100.0);auto_next=next;
-        if(!id.empty()&&id.size()<=512){if(ended)positions.erase(id);else if(std::isfinite(position_value)&&position_value>5&&position_value<86400)positions[id]=position_value;else if(position_value>=0&&position_value<=5)positions.erase(id);}
+        if(!id.empty()&&id.size()<=512){if(ended)positions[id]=-1;else if(std::isfinite(position_value)&&position_value>5&&position_value<86400)positions[id]=position_value;else if(position_value>=0&&position_value<=5)positions.erase(id);}
         while(positions.size()>500)positions.erase(positions.begin());
         const std::string temp=path+".tmp";std::ofstream file(temp,std::ios::trunc);
         file<<Json({{"positions",positions},{"speed",speed},{"volume",volume},{"auto_next",auto_next}}).dump();file.close();

@@ -18,6 +18,7 @@ struct PlaybackOptions {
     bool auto_next=true;
     bool paused=false;
     // Automatic recovery bookkeeping carried across reloads of the same item.
+    std::string preferred_subtitle; // service subtitle language to load automatically
     int auto_reloads=0;
     Uint32 last_auto_reload=0;
 };
@@ -29,6 +30,7 @@ struct PlaybackOutcome {
     bool ended=false,paused=false;
     bool auto_next=true;
     bool auto_reloaded=false;
+    std::string subtitle_language; // service subtitle active at exit, empty if none
 };
 // Playback uses libmpv's CPU render API and the persistent SDL2 renderer.
 // Returns a diagnostic, or an empty string on normal exit.

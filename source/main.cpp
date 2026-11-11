@@ -85,10 +85,25 @@ int main(int argc,char** argv){
     auto home=[&]{xs::Catalog c;c.title="Inicio";
         xs::Entry tv;tv.title="TV en vivo";tv.kind=xs::EntryKind::LiveSection;c.entries.push_back(tv);
         for(const char* type:{"1","0"}){auto i=std::find_if(root_catalog.entries.begin(),root_catalog.entries.end(),[&](const xs::Entry& e){return e.kind==xs::EntryKind::Section&&e.program_type==type;});if(i!=root_catalog.entries.end())c.entries.push_back(*i);}
-        xs::Entry resume;resume.title="Continuar viendo";resume.kind=xs::EntryKind::Resume;c.entries.push_back(resume);
+        xs::Entry resume;resume.title="Recientes";resume.kind=xs::EntryKind::Resume;c.entries.push_back(resume);
         xs::Entry fav;fav.title="Favoritos";fav.kind=xs::EntryKind::Favorites;c.entries.push_back(fav);
         xs::Entry donate;donate.title="Apoyar el desarrollo";donate.kind=xs::EntryKind::Donation;c.entries.push_back(donate);return c;
     };
+    // Recientes: last thing watched per series/movie, with the episode and the minute reached.
+    auto recents=[&]{xs::Catalog c;c.title="Recientes";std::vector<std::string> seen;
+        c.description="Lo ultimo que viste y donde te quedaste. A: continuar desde ese punto.";
+        auto clock=[](double value){const int n=static_cast<int>(value);char b[24];
+            if(n>=3600)std::snprintf(b,sizeof(b),"%d:%02d:%02d",n/3600,n/60%60,n%60);else std::snprintf(b,sizeof(b),"%d:%02d",n/60,n%60);return std::string(b);};
+        for(auto e:saved.recent){if(e.kind!=xs::EntryKind::Episode)continue;
+            const std::string key=e.series_id.empty()?"m"+e.content_id:"s"+e.series_id;
+            if(std::find(seen.begin(),seen.end(),key)!=seen.end()){continue;}
+            seen.push_back(key);
+            std::string episode=e.title;if(episode.rfind("Reproducir: ",0)==0)episode.erase(0,12);
+            e.display_title=e.show.empty()||e.show==episode?episode:e.show+" | "+episode;
+            const double pos=playback_history.position(e.content_id);
+            e.badge=pos>0?"Te quedaste en "+clock(pos):playback_history.finished(e.content_id)?"Terminado":"Empezar";
+            c.entries.push_back(std::move(e));}
+        return c;};
     auto load=[&](auto task,const std::string& message,bool splash=false){
         cancel_task=false;task_done=0;task_total=0;std::atomic<bool> complete{false};
         const auto started=SDL_GetTicks();if(splash)view.splash(message);
@@ -230,7 +245,7 @@ int main(int argc,char** argv){
                     history.emplace_back(catalog,selected);catalog={};catalog.title=entry.title;
                     if(entry.kind==xs::EntryKind::LiveSection){for(const auto& e:root_catalog.entries)if(e.kind==xs::EntryKind::Category)catalog.entries.push_back(e);view.active_nav=1;}
                     else if(entry.kind==xs::EntryKind::Favorites){catalog.entries=saved.favorites;view.active_nav=4;}
-                    else for(const auto& e:saved.recent)if(e.kind==xs::EntryKind::Episode&&playback_history.position(e.content_id)>0)catalog.entries.push_back(e);
+                    else{catalog=recents();catalog.title=entry.title;}
                     selected=0;redraw=true;continue;
                 }
                 if(entry.kind==xs::EntryKind::Category||entry.kind==xs::EntryKind::Section||
@@ -245,15 +260,16 @@ int main(int argc,char** argv){
                 }else if(!full_memory)status="Abre hbmenu manteniendo R sobre un juego para probar el video.";
                 else{
                     int variant=0;double start=0,speed=playback_history.speed,volume=playback_history.volume;bool auto_next=playback_history.auto_next,keep_paused=false;
-                    int auto_reloads=0;Uint32 last_auto_reload=0;
+                    int auto_reloads=0;Uint32 last_auto_reload=0;std::string subtitle_language;
                     std::vector<size_t> queue;
                     for(size_t i=0;i<catalog.entries.size();++i)if(catalog.entries[i].kind==entry.kind&&(entry.series_id.empty()||catalog.entries[i].series_id==entry.series_id))queue.push_back(i);
                     bool continue_playback=true;
                     while(continue_playback){continue_playback=false;const auto current=catalog.entries[selected];
                         std::string source=current.source;std::vector<std::pair<std::string,std::string>> headers;
-                        xs::PlaybackOptions options;options.font=view.font;options.title=current.title;
+                        xs::PlaybackOptions options;options.font=view.font;const std::string show=!current.show.empty()?current.show:(current.kind==xs::EntryKind::Episode&&catalog.title!="Recientes"&&catalog.title!="Favoritos")?catalog.title:"";
+                        options.title=show.empty()||current.title.rfind("Reproducir: ",0)==0?current.title:show+" | "+current.title;
                         options.variant=variant;options.start=start>0?start:current.kind==xs::EntryKind::Episode?playback_history.position(current.content_id):0;options.speed=speed;options.volume=volume;options.auto_next=auto_next;options.paused=keep_paused;
-                        options.auto_reloads=auto_reloads;options.last_auto_reload=last_auto_reload;
+                        options.preferred_subtitle=subtitle_language;options.auto_reloads=auto_reloads;options.last_auto_reload=last_auto_reload;
                         if(current.kind==xs::EntryKind::Channel||current.kind==xs::EntryKind::Episode){
                             status="Solicitando fuente del video...";view.draw(catalog,selected,status,full_memory);
                             xs::SourceResult result;xs::trace("catalog:source_begin");load([&]{result=xs::service_source(session,current,variant);},"Preparando reproduccion...");status=result.status;
@@ -268,8 +284,10 @@ int main(int argc,char** argv){
                         for(size_t i=0;i<queue.size();++i){options.items.push_back(catalog.entries[queue[i]].title);if(queue[i]==selected)options.item=static_cast<int>(i);}
                         if(!source.empty()){
                             xs::PlaybackOutcome outcome;status=xs::play(source,view.renderer,headers,options,&outcome);xs::trace("main:video_returned");
-                            speed=outcome.speed;volume=outcome.volume;auto_next=outcome.auto_next;
-                            if(status.empty()&&(outcome.position>3||outcome.ended)&&!saved.remember(current))xs::trace("catalog:recent_save_failed");
+                            speed=outcome.speed;volume=outcome.volume;auto_next=outcome.auto_next;subtitle_language=outcome.subtitle_language;
+                            xs::Entry remembered=current;remembered.display_title.clear();remembered.badge.clear();
+                            if(remembered.kind==xs::EntryKind::Episode&&remembered.show.empty())remembered.show=show;
+                            if(status.empty()&&(outcome.position>3||outcome.ended)&&!saved.remember(remembered))xs::trace("catalog:recent_save_failed");
                             if(status.empty()&&!playback_history.save(current.kind==xs::EntryKind::Episode?current.content_id:"",outcome.position,outcome.speed,outcome.volume,outcome.auto_next,outcome.ended))xs::trace((std::string("play:history_save_failed stage=")+playback_history.last_error).c_str());
                             if(outcome.ended&&auto_next&&!current.series_id.empty()&&static_cast<size_t>(options.item+1)<queue.size())outcome.next_item=options.item+1;
                             if(outcome.auto_reloaded){++auto_reloads;last_auto_reload=SDL_GetTicks();}
@@ -280,6 +298,9 @@ int main(int argc,char** argv){
                             if(status.empty())status="Video finalizado. A: reproducir; X: buscar.";
                         }
                     }
+                    // Refresh the minute shown on each card after watching from Recientes.
+                    if(catalog.title=="Recientes"){const std::string id=catalog.entries[selected].content_id;catalog=recents();selected=0;
+                        for(size_t i=0;i<catalog.entries.size();++i)if(catalog.entries[i].content_id==id)selected=i;}
 
                 }
                 redraw=true;
