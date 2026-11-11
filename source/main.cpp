@@ -77,7 +77,7 @@ int main(int argc,char** argv){
         "library_state.json"
 #endif
     );
-    size_t selected=0;bool running=true,redraw=true,autoload=true,donating=false;
+    size_t selected=0;bool running=true,redraw=true,autoload=true;
     xs::Catalog root_catalog;
     std::atomic<bool> cancel_task{false};std::atomic<size_t> task_done{0},task_total{0};
     std::shared_ptr<xs::ServiceSession> session;
@@ -86,8 +86,7 @@ int main(int argc,char** argv){
         xs::Entry tv;tv.title="TV en vivo";tv.kind=xs::EntryKind::LiveSection;c.entries.push_back(tv);
         for(const char* type:{"1","0"}){auto i=std::find_if(root_catalog.entries.begin(),root_catalog.entries.end(),[&](const xs::Entry& e){return e.kind==xs::EntryKind::Section&&e.program_type==type;});if(i!=root_catalog.entries.end())c.entries.push_back(*i);}
         xs::Entry resume;resume.title="Recientes";resume.kind=xs::EntryKind::Resume;c.entries.push_back(resume);
-        xs::Entry fav;fav.title="Favoritos";fav.kind=xs::EntryKind::Favorites;c.entries.push_back(fav);
-        xs::Entry donate;donate.title="Apoyar el desarrollo";donate.kind=xs::EntryKind::Donation;c.entries.push_back(donate);return c;
+        xs::Entry fav;fav.title="Favoritos";fav.kind=xs::EntryKind::Favorites;c.entries.push_back(fav);return c;
     };
     // Recientes: last thing watched per series/movie, with the episode and the minute reached.
     auto clock=[](double value){const int n=static_cast<int>(value);char b[24];
@@ -130,7 +129,7 @@ int main(int argc,char** argv){
         if(!appletMainLoop())break;
 #endif
         if(view.poll_images())redraw=true;
-        if(redraw){view.favorite=!catalog.entries.empty()&&saved.contains(catalog.entries[std::min(selected,catalog.entries.size()-1)]);if(donating)view.donation();else view.draw(catalog,selected,status,full_memory);redraw=false;}
+        if(redraw){view.favorite=!catalog.entries.empty()&&saved.contains(catalog.entries[std::min(selected,catalog.entries.size()-1)]);view.draw(catalog,selected,status,full_memory);redraw=false;}
         bool up=false,down=false,left=false,right=false,play=false,reload=false,login=autoload,search=false,back=false,next=false,previous=false,toggle_favorite=false;int nav_action=-1;autoload=false;SDL_Event event;
         while(SDL_PollEvent(&event)){
             if(event.type==SDL_QUIT)running=false;
@@ -138,7 +137,7 @@ int main(int argc,char** argv){
             if(event.type==SDL_MOUSEWHEEL){previous|=event.wheel.y>0;next|=event.wheel.y<0;}
             if(event.type==SDL_MOUSEBUTTONDOWN||event.type==SDL_FINGERDOWN){
                 const int x=event.type==SDL_FINGERDOWN?int(event.tfinger.x*1280):event.button.x,y=event.type==SDL_FINGERDOWN?int(event.tfinger.y*720):event.button.y;
-                if(donating){back=true;continue;}const int hit=view.hit(catalog,selected,x,y);
+                const int hit=view.hit(catalog,selected,x,y);
                 if(hit==-8)toggle_favorite=true;else if(hit<=-2)nav_action=-hit-2;else if(hit>=0){selected=static_cast<size_t>(hit);view.nav_focus=-1;play=true;}
             }
             if(event.type==SDL_KEYDOWN){
@@ -171,7 +170,6 @@ int main(int argc,char** argv){
         back|=(buttons&HidNpadButton_B)!=0;
         next|=(buttons&HidNpadButton_R)!=0;previous|=(buttons&HidNpadButton_L)!=0;
 #endif
-        if(donating){if(back||play||login){donating=false;redraw=true;}SDL_Delay(10);continue;}
         if(view.nav_focus>=0){
             if(up){view.nav_focus=(view.nav_focus+5)%6;redraw=true;}if(down){view.nav_focus=(view.nav_focus+1)%6;redraw=true;}
             if(right||back){view.nav_focus=-1;redraw=true;back=false;}if(play){nav_action=view.nav_focus;play=false;}
@@ -198,7 +196,7 @@ int main(int argc,char** argv){
             selected=0;history.clear();view.active_nav=0;view.nav_focus=-1;redraw=true;
         }
         if(nav_action>0){
-            if(nav_action==5){donating=true;redraw=true;continue;}
+            if(nav_action==5){history.emplace_back(catalog,selected);catalog=recents();selected=0;view.active_nav=5;view.nav_focus=-1;redraw=true;continue;}
             if(nav_action==4){history.emplace_back(catalog,selected);catalog={};catalog.title="Favoritos";catalog.entries=saved.favorites;selected=0;view.active_nav=4;view.nav_focus=-1;redraw=true;}
             else if(session){
                 if(nav_action==1){history.emplace_back(catalog,selected);catalog={};catalog.title="TV en vivo";for(const auto& e:root_catalog.entries)if(e.kind==xs::EntryKind::Category)catalog.entries.push_back(e);selected=0;}
@@ -244,7 +242,6 @@ int main(int argc,char** argv){
             if(previous){selected=selected>=page?selected-page:0;redraw=true;}
             if(play){
                 const xs::Entry entry=catalog.entries[selected];
-                if(entry.kind==xs::EntryKind::Donation){donating=true;redraw=true;continue;}
                 if(entry.kind==xs::EntryKind::LiveSection||entry.kind==xs::EntryKind::Favorites||entry.kind==xs::EntryKind::Resume){
                     history.emplace_back(catalog,selected);catalog={};catalog.title=entry.title;
                     if(entry.kind==xs::EntryKind::LiveSection){for(const auto& e:root_catalog.entries)if(e.kind==xs::EntryKind::Category)catalog.entries.push_back(e);view.active_nav=1;}

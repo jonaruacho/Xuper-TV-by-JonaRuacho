@@ -25,7 +25,7 @@ def main(binary,font):
                 if run==0:counts=calls.copy()
                 else:assert counts==calls,'second launch should use SD artwork cache'
             out=Path('work/ui014');out.mkdir(parents=True,exist_ok=True)
-            for name in ['home','channels','movies','detail','splash','donation']:Image.open(folder/(name+'.bmp')).save(out/(name+'.png'))
+            for name in ['home','channels','movies','detail','splash']:Image.open(folder/(name+'.bmp')).save(out/(name+'.png'))
             assert len(list((folder/'artwork').glob('*.img')))==3
             print('Artwork: PNG/JPEG/WebP decoded, cache reused across launches, no account headers sent')
         finally:server.shutdown();server.server_close();thread.join()

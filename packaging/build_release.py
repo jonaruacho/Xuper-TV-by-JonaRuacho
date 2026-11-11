@@ -1,10 +1,10 @@
 from pathlib import Path
 import hashlib,zipfile,shutil
 root=Path(__file__).resolve().parents[1];dist=root/'dist';dist.mkdir(exist_ok=True)
-output=dist/'Xuper_TV_by_JonaRuacho_0.14.2_Switch.zip'
+output=dist/'Xuper_TV_0.14.3_Switch.zip'
 runtime=root/'packaging/runtime';nro=root/'xuperswitch.nro';raw=nro.read_bytes()
 assert raw[16:20]==b'NRO0'
-assert b'0.14.2' in (root/'xuperswitch.nacp').read_bytes()
+assert b'0.14.3' in (root/'xuperswitch.nacp').read_bytes()
 with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
  for p in runtime.rglob('*'):
   if p.is_file():z.write(p,p.relative_to(runtime))
@@ -19,7 +19,7 @@ with zipfile.ZipFile(output) as z:
  import json
  cfg=json.loads(z.read('switch/xuperswitch/service.template.json'))
  assert not any(k in cfg for k in ['installation_serial','device_id','sn','userId','userToken','password'])
-source=dist/'Xuper_TV_by_JonaRuacho_0.14.2_Fuentes.zip'
+source=dist/'Xuper_TV_0.14.3_Fuentes.zip'
 with zipfile.ZipFile(source,'w',zipfile.ZIP_DEFLATED,compresslevel=9) as z:
  for folder in ['source','include','tests','tools','licenses','packaging']:
   for p in (root/folder).rglob('*'):

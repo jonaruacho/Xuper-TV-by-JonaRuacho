@@ -1,14 +1,13 @@
 #include "view.hpp"
 #include "trace.hpp"
-#include "donation_qr.hpp"
 #include <algorithm>
 namespace xs {
 static constexpr SDL_Color white{238,242,250,255},muted{150,163,185,255},accent{83,225,199,255},panel{24,32,49,255},gold{255,207,113,255};
-static const char* nav[]={"Inicio","TV en vivo","Peliculas","Series","Favoritos","Apoyar"};
+static const char* nav[]={"Inicio","TV en vivo","Peliculas","Series","Favoritos","Recientes"};
 static const char* label(EntryKind kind,const std::string& type){switch(kind){case EntryKind::Channel:return "EN VIVO";case EntryKind::Asset:return type=="0"?"SERIE":"PELICULA";case EntryKind::Episode:return "REPRODUCIR";case EntryKind::VodPage:case EntryKind::SearchPage:return "SIGUIENTE PAGINA";case EntryKind::Category:case EntryKind::VodCategory:return "CATEGORIA";default:return "EXPLORAR";}}
 bool View::open(std::string& error){
     trace("view:init");if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS)!=0){error=SDL_GetError();return false;}if(TTF_Init()!=0){error=TTF_GetError();return false;}
-    window=SDL_CreateWindow("XuperSwitch by Jona Ruacho",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,1280,720,SDL_WINDOW_RESIZABLE);
+    window=SDL_CreateWindow("Xuper TV",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,1280,720,SDL_WINDOW_RESIZABLE);
     if(!window){error=SDL_GetError();return false;}renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);if(!renderer)renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
     if(!renderer){error=SDL_GetError();return false;}SDL_RenderSetLogicalSize(renderer,1280,720);SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY,"1");
 #ifdef __SWITCH__
@@ -32,12 +31,12 @@ void View::background(){
 }
 void View::brand(int x,int y,bool big){
     const int n=big?56:32;rect({x,y,n,n},accent);text(x+(big?10:6),y+(big?-2:-1),"X",{10,20,29,255},n,big?large:heading);
-    text(x+n+12,y-3,"XuperSwitch",white,380,big?large:font);text(x+n+14,y+(big?54:28),"by Jona Ruacho",accent,400,small);
+    text(x+n+12,y-3,"Xuper TV",white,380,big?large:font);text(x+n+14,y+(big?54:28),"para Nintendo Switch",accent,400,small);
 }
 void View::splash(const std::string& status){
     background();brand(405,218,true);text(405,330,"Tu entretenimiento, en un solo lugar.",muted,650,font);
     rect({405,398,470,4},{32,47,65,255});const int p=static_cast<int>((SDL_GetTicks()/5)%350);rect({405+p,398,120,4},accent);
-    text(405,425,status,white,650,font,80);text(405,560,"Apoyar el desarrollo es voluntario. Disponible en Inicio.",muted,680,small);text(405,670,"0.14.2  |  Nintendo Switch homebrew",muted,700,small);SDL_RenderPresent(renderer);
+    text(405,425,status,white,650,font,80);text(405,670,"0.14.3  |  Nintendo Switch homebrew",muted,700,small);SDL_RenderPresent(renderer);
 }
 int View::columns(const Catalog& c)const{
     if(!c.entries.empty()&&c.entries[0].kind==EntryKind::Asset)return 5;
@@ -54,7 +53,7 @@ void View::draw(const Catalog& c,size_t selected,const std::string& status,bool 
     poll_images();background();rect({0,0,240,720},{13,20,32,255});rect({239,0,1,720},{32,43,61,255});brand(24,30);
     for(int i=0;i<6;++i){const int y=150+i*64;const bool focus=nav_focus==i;rect({16,y,207,50},focus?accent:active_nav==i?SDL_Color{29,51,58,255}:SDL_Color{13,20,32,255});
         text(32,y+11,nav[i],focus?SDL_Color{10,22,30,255}:active_nav==i?accent:muted,180,font,32);}
-    text(26,632,"Jona Ruacho",white,190,small);text(26,658,"Version 0.14.2",muted,190,small);
+    text(26,632,"Xuper TV",white,190,small);text(26,658,"Version 0.14.3",muted,190,small);
     text(278,25,c.title.empty()?"Explorar":c.title,white,950,heading,44);
     text(280,72,full_memory?"TV EN VIVO   /   PELICULAS   /   SERIES":"Modo Album: abre con R sobre un juego para reproducir.",full_memory?muted:gold,950,small,28);
     int top=132;
@@ -71,7 +70,7 @@ void View::draw(const Catalog& c,size_t selected,const std::string& status,bool 
         const int art_h=poster?h-63:channel?h-53:detail(c)?68:128;
         rect({x+6,y+6,w-12,art_h},{18,26,40,255});
         if(e.artwork_cache.empty()||!image(e.artwork,e.artwork_cache,{x+10,y+9,w-20,art_h-6})){
-            const char* icon=poster?(e.program_type=="0"?"SERIES":"CINE"):channel?"TV":e.kind==EntryKind::Donation?"+":e.kind==EntryKind::Favorites?"*":e.kind==EntryKind::Resume?">":e.kind==EntryKind::SearchAction?"?":e.kind==EntryKind::Section?(e.program_type=="0"?"SERIES":"CINE"):e.kind==EntryKind::LiveSection?"EN VIVO":e.kind==EntryKind::Episode?">":"+";
+            const char* icon=poster?(e.program_type=="0"?"SERIES":"CINE"):channel?"TV":e.kind==EntryKind::Favorites?"*":e.kind==EntryKind::Resume?">":e.kind==EntryKind::SearchAction?"?":e.kind==EntryKind::Section?(e.program_type=="0"?"SERIES":"CINE"):e.kind==EntryKind::LiveSection?"EN VIVO":e.kind==EntryKind::Episode?">":"+";
             text(x+16,y+std::max(12,(art_h-36)/2),icon,chosen?accent:muted,w-30,heading,45);
         }
         if(poster||channel){rect({x+9,y+8,poster?80:89,22},{16,28,39,255});text(x+12,y+9,label(e.kind,e.program_type),accent,poster?80:89,small,22);}
@@ -94,15 +93,6 @@ int View::hit(const Catalog& c,size_t selected,int x,int y)const{
     if(x<278||y<top||y>=630)return -1;
     const int col=(x-278)/(w+14),row=(y-top)/(h+14);if(col>=cols||(x-278)%(w+14)>=w||(y-top)%(h+14)>=h)return -1;
     const size_t i=(selected/count)*count+row*cols+col;return i<c.entries.size()&&i<(selected/count)*count+count?static_cast<int>(i):-1;
-}
-void View::donation(){
-    background();brand(76,52);text(76,170,"Apoya el desarrollo",white,720,large);text(76,252,"Tu aportacion ayuda a seguir mejorando\nXuperSwitch by Jona Ruacho.",muted,680,heading,100);
-    text(76,382,"Escanea el QR con tu celular y revisa\nel destinatario y el importe en Mercado Pago.",white,680,font,80);
-    text(76,492,"Aportacion voluntaria. Puedes usar la app sin donar.",accent,680,font,70);
-    text(76,590,"link.mercadopago.com.mx/\nxuperbyjonaruacho",muted,680,font,70);
-    rect({842,206,340,340},{255,255,255,255});
-    for(int y=0;y<33;++y)for(int x=0;x<33;++x)if(donation_qr[y][x]=='1')rect({848+(x+4)*8,212+(y+4)*8,8,8},{0,0,0,255});
-    text(900,565,"MERCADO PAGO",accent,300,small);text(76,680,"B / A / Y  Continuar a la app",white,900,small);SDL_RenderPresent(renderer);
 }
 void View::close(){
     images.reset();for(auto** f:{&font,&small,&large,&heading})if(*f){TTF_CloseFont(*f);*f=nullptr;}

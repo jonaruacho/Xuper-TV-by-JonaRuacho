@@ -13,7 +13,6 @@ public:
     bool open(std::string& error);
     void draw(const Catalog& catalog,size_t selected,const std::string& status,bool full_memory);
     void splash(const std::string& status);
-    void donation();
     bool poll_images(){return images&&images->poll();}
     int columns(const Catalog& catalog)const;
     int page_size(const Catalog& catalog)const;
