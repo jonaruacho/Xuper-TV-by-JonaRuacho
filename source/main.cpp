@@ -245,6 +245,7 @@ int main(int argc,char** argv){
                 }else if(!full_memory)status="Abre hbmenu manteniendo R sobre un juego para probar el video.";
                 else{
                     int variant=0;double start=0,speed=playback_history.speed,volume=playback_history.volume;bool auto_next=playback_history.auto_next,keep_paused=false;
+                    int auto_reloads=0;Uint32 last_auto_reload=0;
                     std::vector<size_t> queue;
                     for(size_t i=0;i<catalog.entries.size();++i)if(catalog.entries[i].kind==entry.kind&&(entry.series_id.empty()||catalog.entries[i].series_id==entry.series_id))queue.push_back(i);
                     bool continue_playback=true;
@@ -252,6 +253,7 @@ int main(int argc,char** argv){
                         std::string source=current.source;std::vector<std::pair<std::string,std::string>> headers;
                         xs::PlaybackOptions options;options.font=view.font;options.title=current.title;
                         options.variant=variant;options.start=start>0?start:current.kind==xs::EntryKind::Episode?playback_history.position(current.content_id):0;options.speed=speed;options.volume=volume;options.auto_next=auto_next;options.paused=keep_paused;
+                        options.auto_reloads=auto_reloads;options.last_auto_reload=last_auto_reload;
                         if(current.kind==xs::EntryKind::Channel||current.kind==xs::EntryKind::Episode){
                             status="Solicitando fuente del video...";view.draw(catalog,selected,status,full_memory);
                             xs::SourceResult result;xs::trace("catalog:source_begin");load([&]{result=xs::service_source(session,current,variant);},"Preparando reproduccion...");status=result.status;
@@ -270,9 +272,10 @@ int main(int argc,char** argv){
                             if(status.empty()&&(outcome.position>3||outcome.ended)&&!saved.remember(current))xs::trace("catalog:recent_save_failed");
                             if(status.empty()&&!playback_history.save(current.kind==xs::EntryKind::Episode?current.content_id:"",outcome.position,outcome.speed,outcome.volume,outcome.auto_next,outcome.ended))xs::trace((std::string("play:history_save_failed stage=")+playback_history.last_error).c_str());
                             if(outcome.ended&&auto_next&&!current.series_id.empty()&&static_cast<size_t>(options.item+1)<queue.size())outcome.next_item=options.item+1;
+                            if(outcome.auto_reloaded){++auto_reloads;last_auto_reload=SDL_GetTicks();}
                             if(outcome.next_variant>=0){variant=outcome.next_variant;start=outcome.position;keep_paused=outcome.paused;continue_playback=true;}
                             else if(outcome.next_item>=0&&static_cast<size_t>(outcome.next_item)<queue.size()){
-                                selected=queue[outcome.next_item];variant=0;start=0;keep_paused=false;continue_playback=true;
+                                selected=queue[outcome.next_item];variant=0;start=0;keep_paused=false;continue_playback=true;auto_reloads=0;last_auto_reload=0;
                             }
                             if(status.empty())status="Video finalizado. A: reproducir; X: buscar.";
                         }

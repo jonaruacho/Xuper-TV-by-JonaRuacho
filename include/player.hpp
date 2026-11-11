@@ -17,6 +17,9 @@ struct PlaybackOptions {
     double speed=1,volume=100;
     bool auto_next=true;
     bool paused=false;
+    // Automatic recovery bookkeeping carried across reloads of the same item.
+    int auto_reloads=0;
+    Uint32 last_auto_reload=0;
 };
 struct PlaybackOutcome {
     int next_item=-1,next_variant=-1;
@@ -25,6 +28,7 @@ struct PlaybackOutcome {
     int64_t audio=-1,subtitle=-1;
     bool ended=false,paused=false;
     bool auto_next=true;
+    bool auto_reloaded=false;
 };
 // Playback uses libmpv's CPU render API and the persistent SDL2 renderer.
 // Returns a diagnostic, or an empty string on normal exit.

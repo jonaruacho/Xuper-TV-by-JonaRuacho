@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <unordered_map>
 #ifdef __SWITCH__
 #include <switch.h>
 #endif
@@ -25,7 +26,13 @@ std::string play(const std::string& source,SDL_Renderer* renderer,const std::vec
 #else
     const char* subtitle_cache="subtitle_cache.srt";
 #endif
+    // Overlay text is rasterized once and reused; re-rendering TTF every video
+    // frame steals CPU from the software decoder.
+    struct CachedText {SDL_Texture* texture;int w,h;};
+    std::unordered_map<std::string,CachedText> text_cache;
+    auto clear_text_cache=[&]{for(auto& entry:text_cache)if(entry.second.texture)SDL_DestroyTexture(entry.second.texture);text_cache.clear();};
     auto cleanup=[&]{
+        clear_text_cache();
         trace("play:free_context_begin");
         if(context)mpv_render_context_free(context);
         trace("play:free_context_end");
@@ -49,6 +56,17 @@ std::string play(const std::string& source,SDL_Renderer* renderer,const std::vec
     option("speed",std::to_string(options.speed).c_str());option("volume",std::to_string(options.volume).c_str());
     option("pause",options.paused?"yes":"no");
     option("network-timeout","15");option("tls-verify","yes");option("demuxer-max-bytes","33554432");
+    // Performance tuning for the Switch CPU (software decode + software render).
+    // Failures are ignored on purpose: a missing tuning option must not block playback.
+    auto tuning=[&](const char* name,const char* value){mpv_set_option_string(mpv,name,value);};
+    tuning("demuxer-max-back-bytes","8388608");   // default 50 MiB back buffer grows during long episodes
+    tuning("framedrop","decoder+vo");             // let the decoder drop frames to catch up instead of drifting behind
+    tuning("vd-lavc-fast","yes");
+    tuning("vd-lavc-skiploopfilter","all");       // big H.264 speedup; invisible at the 640x360 output size
+    tuning("vd-lavc-threads","4");                // FFmpeg cannot detect cores on Horizon and may fall back to 1
+    tuning("sws-scaler","fast-bilinear");
+    tuning("sws-fast","yes");
+    tuning("reconnect-on-network-error","yes");
 #ifdef __SWITCH__
     option("ao","hos");option("sub-fonts-dir","sdmc:/switch/xuperswitch");option("sub-font","DejaVu Sans");const char* ca="sdmc:/switch/xuperswitch/cacert.pem";
     if(std::ifstream(ca).good())option("tls-ca-file",ca);
@@ -74,7 +92,9 @@ std::string play(const std::string& source,SDL_Renderer* renderer,const std::vec
     int rc=mpv_initialize(mpv);
         if(rc<0){error=mpv_error_string(rc);cleanup();return error;}
     trace("play:mpv_initialized");
-    mpv_request_log_messages(mpv,"v");
+    // "info" still carries the HTTP/TLS/format errors the classifier needs, without the
+    // verbose per-segment chatter that "v" produces on long HLS episodes.
+    mpv_request_log_messages(mpv,"info");
     mpv_render_param init[]={{MPV_RENDER_PARAM_API_TYPE,const_cast<char*>(MPV_RENDER_API_TYPE_SW)},{MPV_RENDER_PARAM_INVALID,nullptr}};
     rc=mpv_render_context_create(&context,mpv,init);
     if(rc<0){error=std::string("Render software: ")+mpv_error_string(rc);cleanup();return error;}
@@ -97,7 +117,8 @@ std::string play(const std::string& source,SDL_Renderer* renderer,const std::vec
     const std::vector<double> speeds{0.5,0.75,1,1.25,1.5,1.75,2};
     const std::vector<std::string> ratios{"Original","16:9","4:3","Rellenar"};
     PlaybackOutcome result;bool auto_next=options.auto_next;std::string notice,media_hint;
-    Uint32 visible_until=SDL_GetTicks()+5000,last_draw=0;
+    Uint32 visible_until=SDL_GetTicks()+5000,last_draw=0,last_health=0,last_reload=options.last_auto_reload;
+    int drift_seconds=0,stall_seconds=0,reloads=options.auto_reloads;
     auto property=[&](const char* name){double value=0;mpv_get_property(mpv,name,MPV_FORMAT_DOUBLE,&value);return value;};
     auto flag=[&](const char* name){int value=0;mpv_get_property(mpv,name,MPV_FORMAT_FLAG,&value);return value!=0;};
     auto set_number=[&](const char* name,double value){if(mpv_set_property(mpv,name,MPV_FORMAT_DOUBLE,&value)<0)notice="Esta opcion no esta disponible en este video.";};
@@ -145,10 +166,20 @@ std::string play(const std::string& source,SDL_Renderer* renderer,const std::vec
         set_number("panscan",aspect==3?1:0);notice="Pantalla: "+ratios[aspect];show();};
     auto request_item=[&](int index){if(index>=0&&static_cast<size_t>(index)<options.items.size()){result.next_item=index;running=false;}};
     auto draw_text=[&](int x,int y,const std::string& message,SDL_Color color,int width=1150){if(!options.font||message.empty())return;
-        SDL_Surface* surface=TTF_RenderUTF8_Blended_Wrapped(options.font,message.c_str(),color,width);
-        if(!surface)return;
-        SDL_Texture* label=SDL_CreateTextureFromSurface(renderer,surface);SDL_Rect dst{x,y,surface->w,surface->h};
-        if(label){SDL_RenderCopy(renderer,label,nullptr,&dst);SDL_DestroyTexture(label);}SDL_FreeSurface(surface);};
+        std::string key=message;key.push_back('\x1f');key+=std::to_string(color.r)+","+std::to_string(color.g)+","+std::to_string(color.b)+","+std::to_string(width);
+        auto found=text_cache.find(key);
+        if(found==text_cache.end()){
+            if(text_cache.size()>=96)clear_text_cache();
+            SDL_Surface* surface=TTF_RenderUTF8_Blended_Wrapped(options.font,message.c_str(),color,width);
+            if(!surface)return;
+            SDL_Texture* label=SDL_CreateTextureFromSurface(renderer,surface);const CachedText cached{label,surface->w,surface->h};SDL_FreeSurface(surface);
+            if(!label)return;
+            found=text_cache.emplace(std::move(key),cached).first;
+        }
+        SDL_Rect dst{x,y,found->second.w,found->second.h};SDL_RenderCopy(renderer,found->second.texture,nullptr,&dst);};
+    // Same effect as closing and reopening the episode: new mpv instance, fresh source
+    // URL from the service, new connection, resume at the current position.
+    auto reload_video=[&](const char* reason){trace(reason);result.next_variant=std::max(0,options.variant);running=false;};
     auto clock=[](double value){int n=std::max(0,static_cast<int>(value));char b[32];std::snprintf(b,sizeof(b),"%02d:%02d:%02d",n/3600,n/60%60,n%60);return std::string(b);};
     struct Row {std::string label;int action;int64_t value=0;};
     auto menu_rows=[&]{std::vector<Row> rows;
@@ -158,7 +189,7 @@ std::string play(const std::string& source,SDL_Renderer* renderer,const std::vec
             {flag("mute")?"Activar sonido":"Silenciar",9},{"Sincronia audio: "+std::to_string(property("audio-delay")).substr(0,5)+" s",10},
             {"Sincronia subtitulos: "+std::to_string(property("sub-delay")).substr(0,5)+" s",11},
             {"Tamano subtitulos: "+std::to_string(property("sub-scale")).substr(0,4),12},{"Brillo: "+std::to_string(static_cast<int>(property("brightness"))),13},
-            {"Retroceder 60 segundos",14},{"Adelantar 60 segundos",15},{"Reiniciar video",16},{"Informacion del video",17},{std::string("Siguiente episodio automatico: ")+(auto_next?"Si":"No"),24},{"Cerrar reproductor",18}};}
+            {"Retroceder 60 segundos",14},{"Adelantar 60 segundos",15},{"Reiniciar video",16},{"Informacion del video",17},{std::string("Siguiente episodio automatico: ")+(auto_next?"Si":"No"),24},{"Recargar video (si va lento)",25},{"Cerrar reproductor",18}};}
         if(page==1||page==2){if(page==2)rows.push_back({"Desactivar subtitulos",20,-1});for(const auto& t:tracks())if(t.type==(page==1?"audio":"sub"))rows.push_back({(t.selected?"* ":"  ")+t.label,page==1?19:20,t.id});}
         if(page==2)for(size_t i=0;i<options.subtitles.size();++i)rows.push_back({"Servicio: "+options.subtitles[i],23,static_cast<int64_t>(i)});
         if(page==3)for(size_t i=0;i<options.variants.size();++i)rows.push_back({(static_cast<int>(i)==options.variant?"* ":"  ")+options.variants[i],21,static_cast<int64_t>(i)});
@@ -225,6 +256,7 @@ std::string play(const std::string& source,SDL_Renderer* renderer,const std::vec
                     case 21:if(row.value!=options.variant){result.next_variant=static_cast<int>(row.value);running=false;}break;
                     case 22:if(row.value!=options.item)request_item(static_cast<int>(row.value));break;
                     case 24:auto_next=!auto_next;break;
+                    case 25:if(activate)reload_video("play:manual_reload");break;
                     case 23:{std::string data,subtitle_error;
                         if(external_index==row.value&&external_id>=0){mpv_set_property_string(mpv,"sid",std::to_string(external_id).c_str());int on=1;mpv_set_property(mpv,"sub-visibility",MPV_FORMAT_FLAG,&on);notice="Subtitulo seleccionado";page=0;selection=2;break;}
                         SDL_SetRenderDrawColor(renderer,10,17,28,255);SDL_RenderClear(renderer);SDL_RenderCopy(renderer,texture,nullptr,nullptr);
@@ -267,7 +299,35 @@ std::string play(const std::string& source,SDL_Renderer* renderer,const std::vec
                 result.ended=end&&end->reason==MPV_END_FILE_REASON_EOF;running=false;}
         }
         if(!running)break;
-        bool fresh=dirty.exchange(false);
+        // Playback health watchdog. If the video drifts behind the audio or keeps
+        // stalling on the network, recover automatically instead of making the user
+        // close and reopen the episode.
+        {const Uint32 tick=SDL_GetTicks();
+            if(loaded&&!first_frame&&tick-last_health>=1000){last_health=tick;
+                if(flag("pause")||menu){drift_seconds=stall_seconds=0;}
+                else{
+                    const double avsync=property("avsync");
+                    drift_seconds=std::abs(avsync)>0.5?drift_seconds+1:0;
+                    stall_seconds=flag("paused-for-cache")?stall_seconds+1:0;
+                    if(drift_seconds==3&&flag("seekable")){
+                        // First try a cheap in-place resync from the nearest keyframe.
+                        const double pos=property("time-pos");
+                        if(pos>0)command("seek",std::to_string(pos),"absolute+keyframes");
+                        trace("play:resync_seek");notice="Resincronizando video...";show();
+                    }
+                    const bool recover=drift_seconds>=8||stall_seconds>=8;
+                    if(recover&&reloads<3&&(last_reload==0||tick-last_reload>=60000)){
+                        notice="El video iba lento: recargando...";show();
+                        result.auto_reloaded=true;
+                        reload_video(drift_seconds>=8?"play:auto_reload_drift":"play:auto_reload_stall");
+                    }
+                }
+            }
+        }
+        if(!running)break;
+        bool fresh=false;
+        // Only pay for a software render when mpv actually has a new frame.
+        if(dirty.exchange(false))fresh=(mpv_render_context_update(context)&MPV_RENDER_UPDATE_FRAME)!=0;
         if(fresh){int size[2]={width,height};mpv_render_param frame[]={{MPV_RENDER_PARAM_SW_SIZE,size},{MPV_RENDER_PARAM_SW_FORMAT,const_cast<char*>("rgb0")},
             {MPV_RENDER_PARAM_SW_STRIDE,&stride},{MPV_RENDER_PARAM_SW_POINTER,pixels},{MPV_RENDER_PARAM_INVALID,nullptr}};
             rc=mpv_render_context_render(context,frame);
