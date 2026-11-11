@@ -1,4 +1,4 @@
-Xuper TV 0.14.3 - Instalacion para Nintendo Switch
+XuperTV NX 0.14.3 - Instalacion para Nintendo Switch
 
 1. Descomprime el ZIP. Copia la carpeta switch completa a la raiz de la SD.
 2. Abre hbmenu con memoria completa: manten R al iniciar un juego.

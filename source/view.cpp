@@ -7,7 +7,7 @@ static const char* nav[]={"Inicio","TV en vivo","Peliculas","Series","Favoritos"
 static const char* label(EntryKind kind,const std::string& type){switch(kind){case EntryKind::Channel:return "EN VIVO";case EntryKind::Asset:return type=="0"?"SERIE":"PELICULA";case EntryKind::Episode:return "REPRODUCIR";case EntryKind::VodPage:case EntryKind::SearchPage:return "SIGUIENTE PAGINA";case EntryKind::Category:case EntryKind::VodCategory:return "CATEGORIA";default:return "EXPLORAR";}}
 bool View::open(std::string& error){
     trace("view:init");if(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_EVENTS)!=0){error=SDL_GetError();return false;}if(TTF_Init()!=0){error=TTF_GetError();return false;}
-    window=SDL_CreateWindow("Xuper TV",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,1280,720,SDL_WINDOW_RESIZABLE);
+    window=SDL_CreateWindow("XuperTV NX",SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED,1280,720,SDL_WINDOW_RESIZABLE);
     if(!window){error=SDL_GetError();return false;}renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_ACCELERATED|SDL_RENDERER_PRESENTVSYNC);if(!renderer)renderer=SDL_CreateRenderer(window,-1,SDL_RENDERER_SOFTWARE);
     if(!renderer){error=SDL_GetError();return false;}SDL_RenderSetLogicalSize(renderer,1280,720);SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY,"1");
 #ifdef __SWITCH__
@@ -31,7 +31,7 @@ void View::background(){
 }
 void View::brand(int x,int y,bool big){
     const int n=big?56:32;rect({x,y,n,n},accent);text(x+(big?10:6),y+(big?-2:-1),"X",{10,20,29,255},n,big?large:heading);
-    text(x+n+12,y-3,"Xuper TV",white,380,big?large:font);text(x+n+14,y+(big?54:28),"para Nintendo Switch",accent,400,small);
+    text(x+n+12,y-3,"XuperTV NX",white,380,big?large:font);text(x+n+14,y+(big?54:28),"para Nintendo Switch",accent,400,small);
 }
 void View::splash(const std::string& status){
     background();brand(405,218,true);text(405,330,"Tu entretenimiento, en un solo lugar.",muted,650,font);
@@ -53,7 +53,7 @@ void View::draw(const Catalog& c,size_t selected,const std::string& status,bool 
     poll_images();background();rect({0,0,240,720},{13,20,32,255});rect({239,0,1,720},{32,43,61,255});brand(24,30);
     for(int i=0;i<6;++i){const int y=150+i*64;const bool focus=nav_focus==i;rect({16,y,207,50},focus?accent:active_nav==i?SDL_Color{29,51,58,255}:SDL_Color{13,20,32,255});
         text(32,y+11,nav[i],focus?SDL_Color{10,22,30,255}:active_nav==i?accent:muted,180,font,32);}
-    text(26,632,"Xuper TV",white,190,small);text(26,658,"Version 0.14.3",muted,190,small);
+    text(26,632,"XuperTV NX",white,190,small);text(26,658,"Version 0.14.3",muted,190,small);
     text(278,25,c.title.empty()?"Explorar":c.title,white,950,heading,44);
     text(280,72,full_memory?"TV EN VIVO   /   PELICULAS   /   SERIES":"Modo Album: abre con R sobre un juego para reproducir.",full_memory?muted:gold,950,small,28);
     int top=132;

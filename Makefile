@@ -1,6 +1,6 @@
 TARGET := xuperswitch
-APP_TITLE := Xuper TV
-APP_AUTHOR := Comunidad Xuper TV
+APP_TITLE := XuperTV NX
+APP_AUTHOR := Comunidad XuperTV NX
 APP_VERSION := 0.14.3
 
 ifeq ($(strip $(DEVKITPRO)),)

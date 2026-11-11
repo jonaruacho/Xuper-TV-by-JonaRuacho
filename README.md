@@ -1,4 +1,4 @@
-# Xuper TV
+# XuperTV NX
 
 Cliente homebrew nativo para Nintendo Switch. Proyecto comunitario en C++17,
 libnx, SDL2 y libmpv. Version del codigo: **0.14.3**.
