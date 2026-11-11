@@ -660,6 +660,53 @@ BrowseResult service_browse(const std::shared_ptr<ServiceSession>& s,const Entry
     out.ok=true;out.status=e.program_type=="0"?"Episodios. A: solicitar reproduccion; B: volver.":"Pelicula. A: solicitar reproduccion; B: volver.";
     return out;
 }
+// Subtitles: the service does not always use the same layout ("subtitleList"/"file"/"srt").
+// Search any key that mentions subtitles/captions and accept common text formats.
+static std::string lower(std::string v){std::transform(v.begin(),v.end(),v.begin(),[](unsigned char c){return static_cast<char>(std::tolower(c));});return v;}
+static std::string first_text(const Json& o,std::initializer_list<const char*> keys){for(const char* k:keys){auto v=text(o,k);if(!v.empty())return v;}return "";}
+static void subtitle_files(const Json& sub,size_t number,std::vector<SubtitleSource>& out,std::vector<std::string>& seen_types){
+    if(!sub.is_object())return;
+    std::string language=first_text(sub,{"language","languageName","lang","langName","name","title","label"});
+    if(language.empty())language="Subtitulo "+std::to_string(number);
+    if(language.size()>60)language.resize(60);
+    std::vector<const Json*> files;
+    for(const char* k:{"file","files","fileList","subtitleFile"}){auto f=sub.find(k);
+        if(f!=sub.end()&&f->is_array())for(const auto& x:*f)files.push_back(&x);
+        else if(f!=sub.end()&&f->is_object())files.push_back(&*f);}
+    if(files.empty())files.push_back(&sub);
+    const SubtitleSource* chosen=nullptr;std::vector<SubtitleSource> candidates;
+    for(const Json* f:files){if(!f->is_object())continue;
+        std::string url=first_text(*f,{"url","fileUrl","path","src","link","address","subtitleUrl"});
+        std::string type=lower(first_text(*f,{"fileType","type","format","ext","extension"}));
+        if(type.empty()){const auto path=url.substr(0,url.find('?'));const auto dot=path.rfind('.');if(dot!=std::string::npos)type=lower(path.substr(dot+1));}
+        if(std::find(seen_types.begin(),seen_types.end(),type)==seen_types.end()&&seen_types.size()<8)seen_types.push_back(type.empty()?"?":type);
+        if(url.rfind("http://",0)==0)url="https://"+url.substr(7); // subtitle requests stay on HTTPS
+        if(url.rfind("https://",0)!=0)continue;
+        if(!type.empty()&&type!="srt"&&type!="vtt"&&type!="webvtt"&&type!="ass"&&type!="ssa"&&type!="txt"&&type!="sub")continue;
+        candidates.push_back({language,url,lower(text(*f,"md5"))});
+        if(type=="srt"&&!chosen)chosen=&candidates.back();
+    }
+    if(candidates.empty())return;
+    const SubtitleSource pick=chosen?*chosen:candidates.front();
+    for(const auto& x:out)if(x.url==pick.url)return;
+    if(out.size()<32)out.push_back(pick);
+}
+static void collect_subtitles(const Json& node,std::vector<SubtitleSource>& out,std::vector<std::string>& seen_types,int depth,const char* skip=nullptr){
+    if(depth>6||out.size()>=32)return;
+    if(node.is_array()){for(const auto& x:node)collect_subtitles(x,out,seen_types,depth+1,skip);return;}
+    if(!node.is_object())return;
+    for(auto it=node.begin();it!=node.end();++it){
+        if(skip&&it.key()==skip)continue;
+        const std::string key=lower(it.key());
+        if(key.find("subtitle")!=std::string::npos||key.find("caption")!=std::string::npos||key=="subs"){
+            size_t n=out.size()+1;
+            if(it->is_array())for(const auto& x:*it)subtitle_files(x,n++,out,seen_types);
+            else if(it->is_object())subtitle_files(*it,n,out,seen_types);
+        }else if(it->is_object()||it->is_array())collect_subtitles(*it,out,seen_types,depth+1,skip);
+    }
+}
+static std::string key_summary(const Json& o){std::string keys;if(!o.is_object())return keys;
+    for(auto it=o.begin();it!=o.end()&&keys.size()<400;++it){keys+=it.key();keys+=',';}return keys;}
 static SourceResult vod_source(const std::shared_ptr<ServiceSession>& s,const Entry& e,int variant) {
     SourceResult out;if(!s||e.content_id.empty()){out.status="Video sin sesion valida.";return out;}
     CurlScope curl;if(!curl.ready){out.status="No se pudo iniciar cURL.";return out;}
@@ -670,14 +717,10 @@ static SourceResult vod_source(const std::shared_ptr<ServiceSession>& s,const En
     const auto episodes=data.find("episodeList");
     if(episodes==data.end()||!episodes->is_array()){out.status="Video autorizado sin fuentes reconocidas.";return out;}
     struct Candidate {std::string code,license,tag,label;};std::vector<Candidate> candidates;
+    std::vector<std::string> subtitle_types;std::string episode_keys;bool matched=false;
     for(const auto& episode:*episodes){if(text(episode,"programContentId")!=e.content_id)continue;
-        const auto subtitles=episode.find("subtitleList");
-        if(subtitles!=episode.end()&&subtitles->is_array())for(const auto& sub:*subtitles){
-            const auto files=sub.find("file");if(files==sub.end()||!files->is_array())continue;
-            for(const auto& file:*files)if(text(file,"fileType")=="srt"&&text(file,"url").rfind("https://",0)==0&&out.subtitles.size()<32){
-                out.subtitles.push_back({text(sub,"language","Subtitulo"),text(file,"url"),text(file,"md5")});break;
-            }
-        }
+        collect_subtitles(episode,out.subtitles,subtitle_types,0);matched=true;
+        if(out.subtitles.empty()&&episode_keys.empty())episode_keys=key_summary(episode);
         const auto groups=episode.find("totalMovieList");if(groups==episode.end()||!groups->is_array())continue;
         for(const auto& group:*groups){const auto movies=group.find("movieList");if(movies==group.end()||!movies->is_array())continue;
             for(const auto& movie:*movies){
@@ -691,6 +734,12 @@ static SourceResult vod_source(const std::shared_ptr<ServiceSession>& s,const En
             }
         }
     }
+    // Some responses keep subtitles next to the episode list instead of inside it.
+    if(out.subtitles.empty())collect_subtitles(data,out.subtitles,subtitle_types,0,"episodeList");
+    {std::string types;for(const auto& t:subtitle_types)types+=t+",";
+        trace(("sub:found "+std::to_string(out.subtitles.size())+" episode_match="+(matched?"si":"no")+" types="+types).c_str());
+        // Field names only (never values) so a report can show where subtitles live.
+        if(out.subtitles.empty()){trace(("sub:episode_keys "+episode_keys).c_str());trace(("sub:response_keys "+key_summary(data)).c_str());}}
     for(size_t i=0;i<candidates.size();++i)out.variants.push_back(std::to_string(i+1)+". "+candidates[i].label);
     if(variant>=0&&static_cast<size_t>(variant)<candidates.size()){
         const auto& c=candidates[variant];auto resolved=resolve_ranger(s,RangerMode::Vod,c.code,c.license,c.tag,"1");
