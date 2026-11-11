@@ -37,7 +37,7 @@ void View::brand(int x,int y,bool big){
 void View::splash(const std::string& status){
     background();brand(405,218,true);text(405,330,"Tu entretenimiento, en un solo lugar.",muted,650,font);
     rect({405,398,470,4},{32,47,65,255});const int p=static_cast<int>((SDL_GetTicks()/5)%350);rect({405+p,398,120,4},accent);
-    text(405,425,status,white,650,font,80);text(405,560,"Apoyar el desarrollo es voluntario. Disponible en Inicio.",muted,680,small);text(405,670,"0.14.1  |  Nintendo Switch homebrew",muted,700,small);SDL_RenderPresent(renderer);
+    text(405,425,status,white,650,font,80);text(405,560,"Apoyar el desarrollo es voluntario. Disponible en Inicio.",muted,680,small);text(405,670,"0.14.2  |  Nintendo Switch homebrew",muted,700,small);SDL_RenderPresent(renderer);
 }
 int View::columns(const Catalog& c)const{
     if(!c.entries.empty()&&c.entries[0].kind==EntryKind::Asset)return 5;
@@ -54,7 +54,7 @@ void View::draw(const Catalog& c,size_t selected,const std::string& status,bool 
     poll_images();background();rect({0,0,240,720},{13,20,32,255});rect({239,0,1,720},{32,43,61,255});brand(24,30);
     for(int i=0;i<6;++i){const int y=150+i*64;const bool focus=nav_focus==i;rect({16,y,207,50},focus?accent:active_nav==i?SDL_Color{29,51,58,255}:SDL_Color{13,20,32,255});
         text(32,y+11,nav[i],focus?SDL_Color{10,22,30,255}:active_nav==i?accent:muted,180,font,32);}
-    text(26,632,"Jona Ruacho",white,190,small);text(26,658,"Version 0.14.1",muted,190,small);
+    text(26,632,"Jona Ruacho",white,190,small);text(26,658,"Version 0.14.2",muted,190,small);
     text(278,25,c.title.empty()?"Explorar":c.title,white,950,heading,44);
     text(280,72,full_memory?"TV EN VIVO   /   PELICULAS   /   SERIES":"Modo Album: abre con R sobre un juego para reproducir.",full_memory?muted:gold,950,small,28);
     int top=132;

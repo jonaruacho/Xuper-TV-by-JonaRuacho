@@ -1,4 +1,4 @@
-Xuper TV by JonaRuacho 0.14.1 - Instalacion para Nintendo Switch
+Xuper TV by JonaRuacho 0.14.2 - Instalacion para Nintendo Switch
 
 1. Descomprime el ZIP. Copia la carpeta switch completa a la raiz de la SD.
 2. Abre hbmenu con memoria completa: manten R al iniciar un juego.
@@ -19,3 +19,4 @@ Menos abre apoyo voluntario. En video: A pausa; X/+ opciones; B salir del video.
 
 Codigo y creditos: https://github.com/jonaruacho/Xuper-TV-by-JonaRuacho
 La interfaz 0.14 y el arranque 0.14.1 necesitan validacion en Switch.
+La 0.14.2 corrige la lentitud progresiva al ver series (validado en Switch).

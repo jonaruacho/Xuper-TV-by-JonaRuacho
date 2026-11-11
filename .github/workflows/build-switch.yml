@@ -27,6 +27,6 @@ jobs:
           cp xuperswitch.nro xuperswitch.nacp dist/
       - uses: actions/upload-artifact@v4
         with:
-          name: Xuper-TV-0.14.1-Switch
+          name: Xuper-TV-0.14.2-Switch
           path: dist/*
           if-no-files-found: error

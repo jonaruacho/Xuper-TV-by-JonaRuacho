@@ -1,7 +1,7 @@
 # Xuper TV by JonaRuacho
 
 Cliente homebrew nativo para Nintendo Switch. Proyecto comunitario en C++17,
-libnx, SDL2 y libmpv. Version del codigo: **0.14.1**.
+libnx, SDL2 y libmpv. Version del codigo: **0.14.2**.
 
 ## Descargar para usar en Switch
 
