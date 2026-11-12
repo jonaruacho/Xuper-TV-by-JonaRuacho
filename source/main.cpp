@@ -77,18 +77,54 @@ int main(int argc,char** argv){
         "library_state.json"
 #endif
     );
-    size_t selected=0;bool running=true,redraw=true,autoload=true,donating=false;
+    size_t selected=0;bool running=true,redraw=true,autoload=true;
     xs::Catalog root_catalog;
     std::atomic<bool> cancel_task{false};std::atomic<size_t> task_done{0},task_total{0};
     std::shared_ptr<xs::ServiceSession> session;
     std::vector<std::pair<xs::Catalog,size_t>> history;
-    auto home=[&]{xs::Catalog c;c.title="Inicio";
-        xs::Entry tv;tv.title="TV en vivo";tv.kind=xs::EntryKind::LiveSection;c.entries.push_back(tv);
-        for(const char* type:{"1","0"}){auto i=std::find_if(root_catalog.entries.begin(),root_catalog.entries.end(),[&](const xs::Entry& e){return e.kind==xs::EntryKind::Section&&e.program_type==type;});if(i!=root_catalog.entries.end())c.entries.push_back(*i);}
-        xs::Entry resume;resume.title="Continuar viendo";resume.kind=xs::EntryKind::Resume;c.entries.push_back(resume);
-        xs::Entry fav;fav.title="Favoritos";fav.kind=xs::EntryKind::Favorites;c.entries.push_back(fav);
-        xs::Entry donate;donate.title="Apoyar el desarrollo";donate.kind=xs::EntryKind::Donation;c.entries.push_back(donate);return c;
-    };
+    // Recientes: last thing watched per series/movie, with the episode and the minute reached.
+    auto clock=[](double value){const int n=static_cast<int>(value);char b[24];
+        if(n>=3600)std::snprintf(b,sizeof(b),"%d:%02d:%02d",n/3600,n/60%60,n%60);else std::snprintf(b,sizeof(b),"%d:%02d",n/60,n%60);return std::string(b);};
+    // Marks every episode of a list with how far it was watched.
+    auto mark_progress=[&](xs::Catalog& c){for(auto& e:c.entries){if(e.kind!=xs::EntryKind::Episode)continue;
+        const double pos=playback_history.position(e.content_id);
+        e.badge=pos>0?"Te quedaste en "+clock(pos):playback_history.finished(e.content_id)?"Visto":"";e.progress=playback_history.progress(e.content_id);}};
+    auto recents=[&]{xs::Catalog c;c.title="Recientes";std::vector<std::string> seen;
+        c.description="Lo ultimo que viste. Series: A abre sus episodios en el capitulo donde ibas. Peliculas: A continua.";
+        for(auto e:saved.recent){if(e.kind!=xs::EntryKind::Episode)continue;
+            const std::string key=e.series_id.empty()?"m"+e.content_id:"s"+e.series_id;
+            if(std::find(seen.begin(),seen.end(),key)!=seen.end()){continue;}
+            seen.push_back(key);
+            std::string episode=e.title;if(episode.rfind("Reproducir: ",0)==0)episode.erase(0,12);
+            e.display_title=e.show.empty()||e.show==episode?episode:e.show+" | "+episode;
+            const double pos=playback_history.position(e.content_id);
+            e.badge=pos>0?"Te quedaste en "+clock(pos):playback_history.finished(e.content_id)?"Terminado":"Empezar";
+            e.progress=playback_history.progress(e.content_id);
+            c.entries.push_back(std::move(e));}
+        return c;};
+    // Inicio: banner with the last thing watched, then rows (Recientes, favorite channels, Explorar).
+    auto home=[&]{xs::Catalog c;c.title="Inicio";auto recent=recents().entries;
+        if(!recent.empty()){xs::Entry hero=recent[0];hero.group="hero";c.entries.push_back(hero);
+            if(!hero.series_id.empty()){xs::Entry episodes=hero;episodes.query="open_series";c.entries.push_back(episodes);}}
+        for(size_t i=1;i<recent.size()&&i<=12;++i){auto e=recent[i];e.group="Recientes";c.entries.push_back(std::move(e));}
+        size_t wishes=0;for(auto e:saved.wishlist){if(wishes++>=12)break;e.group="Mi lista";c.entries.push_back(std::move(e));}
+        size_t favorites=0;for(auto e:saved.favorites){if(favorites++>=12)break;e.group="Favoritos en vivo";c.entries.push_back(std::move(e));}
+        xs::Entry tv;tv.title="TV en vivo";tv.kind=xs::EntryKind::LiveSection;tv.group="Explorar";c.entries.push_back(tv);
+        for(const char* type:{"1","0"}){auto i=std::find_if(root_catalog.entries.begin(),root_catalog.entries.end(),[&](const xs::Entry& e){return e.kind==xs::EntryKind::Section&&e.program_type==type;});
+            if(i!=root_catalog.entries.end()){auto e=*i;e.group="Explorar";c.entries.push_back(std::move(e));}}
+        return c;};
+    auto wishlist=[&]{xs::Catalog c;c.title="Mi lista";c.entries=saved.wishlist;return c;};
+    // The movie or series a Mi lista action refers to: an Asset card, or the series/movie
+    // whose episode list is open.
+    auto wish_target=[&](xs::Entry& asset)->bool{
+        if(catalog.entries.empty())return false;const auto& e=catalog.entries[std::min(selected,catalog.entries.size()-1)];
+        if(e.kind==xs::EntryKind::Asset){asset=e;asset.group.clear();asset.query.clear();return true;}
+        if(e.kind!=xs::EntryKind::Episode||catalog.title=="Recientes"||catalog.title=="Inicio")return false;
+        if(!history.empty()){const auto& prev=history.back();
+            if(prev.second<prev.first.entries.size()&&prev.first.entries[prev.second].kind==xs::EntryKind::Asset){asset=prev.first.entries[prev.second];asset.group.clear();return true;}}
+        if(!e.series_id.empty()){asset={};asset.kind=xs::EntryKind::Asset;asset.content_id=e.series_id;asset.program_type="0";asset.column_id=e.column_id;
+            asset.title=catalog.title;asset.artwork=catalog.artwork;asset.artwork_cache=catalog.artwork_cache;return true;}
+        return false;};
     auto load=[&](auto task,const std::string& message,bool splash=false){
         cancel_task=false;task_done=0;task_total=0;std::atomic<bool> complete{false};
         const auto started=SDL_GetTicks();if(splash)view.splash(message);
@@ -111,7 +147,8 @@ int main(int argc,char** argv){
         if(!appletMainLoop())break;
 #endif
         if(view.poll_images())redraw=true;
-        if(redraw){view.favorite=!catalog.entries.empty()&&saved.contains(catalog.entries[std::min(selected,catalog.entries.size()-1)]);if(donating)view.donation();else view.draw(catalog,selected,status,full_memory);redraw=false;}
+        if(redraw){view.favorite=!catalog.entries.empty()&&saved.contains(catalog.entries[std::min(selected,catalog.entries.size()-1)]);
+            {xs::Entry asset;view.wish_state=wish_target(asset)?(saved.wished(asset)?1:0):-1;}view.draw(catalog,selected,status,full_memory);redraw=false;}
         bool up=false,down=false,left=false,right=false,play=false,reload=false,login=autoload,search=false,back=false,next=false,previous=false,toggle_favorite=false;int nav_action=-1;autoload=false;SDL_Event event;
         while(SDL_PollEvent(&event)){
             if(event.type==SDL_QUIT)running=false;
@@ -119,8 +156,8 @@ int main(int argc,char** argv){
             if(event.type==SDL_MOUSEWHEEL){previous|=event.wheel.y>0;next|=event.wheel.y<0;}
             if(event.type==SDL_MOUSEBUTTONDOWN||event.type==SDL_FINGERDOWN){
                 const int x=event.type==SDL_FINGERDOWN?int(event.tfinger.x*1280):event.button.x,y=event.type==SDL_FINGERDOWN?int(event.tfinger.y*720):event.button.y;
-                if(donating){back=true;continue;}const int hit=view.hit(catalog,selected,x,y);
-                if(hit==-8)toggle_favorite=true;else if(hit<=-2)nav_action=-hit-2;else if(hit>=0){selected=static_cast<size_t>(hit);view.nav_focus=-1;play=true;}
+                const int hit=view.hit(catalog,selected,x,y);
+                if(hit==-20)toggle_favorite=true;else if(hit<=-2)nav_action=-hit-2;else if(hit>=0){selected=static_cast<size_t>(hit);view.nav_focus=-1;play=true;}
             }
             if(event.type==SDL_KEYDOWN){
                 switch(event.key.keysym.sym){
@@ -152,12 +189,11 @@ int main(int argc,char** argv){
         back|=(buttons&HidNpadButton_B)!=0;
         next|=(buttons&HidNpadButton_R)!=0;previous|=(buttons&HidNpadButton_L)!=0;
 #endif
-        if(donating){if(back||play||login){donating=false;redraw=true;}SDL_Delay(10);continue;}
         if(view.nav_focus>=0){
-            if(up){view.nav_focus=(view.nav_focus+5)%6;redraw=true;}if(down){view.nav_focus=(view.nav_focus+1)%6;redraw=true;}
-            if(right||back){view.nav_focus=-1;redraw=true;back=false;}if(play){nav_action=view.nav_focus;play=false;}
-            up=down=left=right=false;
-        }else if(left&&selected%static_cast<size_t>(view.columns(catalog))==0){view.nav_focus=view.active_nav;left=false;redraw=true;}
+            if(left){view.nav_focus=(view.nav_focus+xs::View::tab_count-1)%xs::View::tab_count;redraw=true;}if(right){view.nav_focus=(view.nav_focus+1)%xs::View::tab_count;redraw=true;}
+            if(down||back){view.nav_focus=-1;redraw=true;back=false;}if(play){nav_action=view.nav_focus;play=false;}
+            up=down=left=right=next=previous=false;
+        }else if(up&&catalog.entries.empty()){view.nav_focus=view.active_nav;up=false;redraw=true;}
         if(nav_action==0)login=true;
         if(login){
             if(!session){
@@ -179,7 +215,9 @@ int main(int argc,char** argv){
             selected=0;history.clear();view.active_nav=0;view.nav_focus=-1;redraw=true;
         }
         if(nav_action>0){
-            if(nav_action==5){donating=true;redraw=true;continue;}
+            if(nav_action==5){history.emplace_back(catalog,selected);catalog=recents();selected=0;view.active_nav=5;view.nav_focus=-1;redraw=true;continue;}
+            if(nav_action==6){history.emplace_back(catalog,selected);catalog=wishlist();selected=0;view.active_nav=6;view.nav_focus=-1;
+                status=catalog.entries.empty()?"Guarda peliculas y series con R3 para verlas despues.":"A: abrir   R3: quitar de Mi lista";redraw=true;continue;}
             if(nav_action==4){history.emplace_back(catalog,selected);catalog={};catalog.title="Favoritos";catalog.entries=saved.favorites;selected=0;view.active_nav=4;view.nav_focus=-1;redraw=true;}
             else if(session){
                 if(nav_action==1){history.emplace_back(catalog,selected);catalog={};catalog.title="TV en vivo";for(const auto& e:root_catalog.entries)if(e.kind==xs::EntryKind::Category)catalog.entries.push_back(e);selected=0;}
@@ -190,8 +228,13 @@ int main(int argc,char** argv){
             }else{status="Sin sesion. Pulsa Y para reintentar la conexion.";redraw=true;}
         }
         if(toggle_favorite&&!catalog.entries.empty()){
-            const auto entry=catalog.entries[selected];
-            if(entry.kind!=xs::EntryKind::Channel)status="Selecciona un canal para guardarlo en Favoritos.";
+            const auto entry=catalog.entries[selected];xs::Entry asset;
+            if(entry.kind!=xs::EntryKind::Channel&&wish_target(asset)){
+                if(!saved.toggle_wish(asset))status="No se pudo guardar Mi lista en la SD.";
+                else{status=saved.wished(asset)?"Agregado a Mi lista: "+asset.title:"Quitado de Mi lista: "+asset.title;
+                    if(catalog.title=="Mi lista"){catalog=wishlist();selected=catalog.entries.empty()?0:std::min(selected,catalog.entries.size()-1);}}
+            }
+            else if(entry.kind!=xs::EntryKind::Channel)status="R3 guarda canales en Favoritos y peliculas o series en Mi lista.";
             else if(!saved.toggle(entry))status="No se pudo guardar Favoritos en la SD.";
             else{status=saved.contains(entry)?"Canal guardado en Favoritos.":"Canal quitado de Favoritos.";if(catalog.title=="Favoritos"){catalog.entries=saved.favorites;selected=catalog.entries.empty()?0:std::min(selected,catalog.entries.size()-1);}}
             redraw=true;
@@ -214,24 +257,46 @@ int main(int argc,char** argv){
         }
         if(back&&!history.empty()) {
             catalog=std::move(history.back().first);selected=history.back().second;history.pop_back();
-            status="Elige un titulo o canal.";if(history.empty())view.active_nav=0;redraw=true;
+            status="Elige un titulo o canal.";if(history.empty())view.active_nav=0;
+            if(catalog.title=="Inicio"&&session){catalog=home();selected=std::min(selected,catalog.entries.empty()?0:catalog.entries.size()-1);}
+            redraw=true;
         }
         if(!catalog.entries.empty()){
-            const size_t cols=view.columns(catalog),page=view.page_size(catalog);
-            if(up){selected=selected>=cols?selected-cols:selected;redraw=true;}
-            if(down){selected=std::min(selected+cols,catalog.entries.size()-1);redraw=true;}
-            if(left){if(selected>0)--selected;redraw=true;}if(right){selected=std::min(selected+1,catalog.entries.size()-1);redraw=true;}
-            if(next){selected=std::min(selected+page,catalog.entries.size()-1);redraw=true;}
-            if(previous){selected=selected>=page?selected-page:0;redraw=true;}
-            if(play){
-                const xs::Entry entry=catalog.entries[selected];
-                if(entry.kind==xs::EntryKind::Donation){donating=true;redraw=true;continue;}
+            const size_t page=view.page_size(catalog);const bool rows=catalog.title=="Inicio";
+            auto step=[&](int dx,int dy){const long to=view.move(catalog,selected,dx,dy);if(to<0)view.nav_focus=view.active_nav;else selected=static_cast<size_t>(to);redraw=true;};
+            if(up)step(0,-1);if(down)step(0,1);if(left)step(-1,0);if(right)step(1,0);
+            if(next){if(rows)step(0,1);else selected=std::min(selected+page,catalog.entries.size()-1);redraw=true;}
+            if(previous){if(rows){if(view.move(catalog,selected,0,-1)>=0)step(0,-1);}else selected=selected>=page?selected-page:0;redraw=true;}
+            if(play&&view.nav_focus<0){
+                xs::Entry entry=catalog.entries[selected];
                 if(entry.kind==xs::EntryKind::LiveSection||entry.kind==xs::EntryKind::Favorites||entry.kind==xs::EntryKind::Resume){
                     history.emplace_back(catalog,selected);catalog={};catalog.title=entry.title;
                     if(entry.kind==xs::EntryKind::LiveSection){for(const auto& e:root_catalog.entries)if(e.kind==xs::EntryKind::Category)catalog.entries.push_back(e);view.active_nav=1;}
                     else if(entry.kind==xs::EntryKind::Favorites){catalog.entries=saved.favorites;view.active_nav=4;}
-                    else for(const auto& e:saved.recent)if(e.kind==xs::EntryKind::Episode&&playback_history.position(e.content_id)>0)catalog.entries.push_back(e);
+                    else{catalog=recents();catalog.title=entry.title;}
                     selected=0;redraw=true;continue;
+                }
+                // Recientes: a series opens its full episode list, positioned on the episode
+                // in progress, or on the next one if the last one was finished.
+                const bool open_only=catalog.title=="Recientes"||entry.query=="open_series";
+                const bool open_and_play=catalog.title=="Inicio"&&entry.query!="open_series";
+                if((open_only||open_and_play)&&entry.kind==xs::EntryKind::Episode&&!entry.series_id.empty()&&session){
+                    xs::Entry series;series.kind=xs::EntryKind::Asset;series.content_id=entry.series_id;series.program_type="0";
+                    series.column_id=entry.column_id;series.title=entry.show.empty()?"Serie":entry.show;series.artwork_cache=entry.artwork_cache;
+                    xs::BrowseResult result;xs::trace("recent:open_series");
+                    load([&]{result=xs::service_browse(session,series);},"Abriendo "+series.title+"...");status=result.status;
+                    if(result.ok&&!result.catalog.entries.empty()){
+                        history.emplace_back(std::move(catalog),selected);catalog=std::move(result.catalog);
+                        if(catalog.title.empty())catalog.title=series.title;
+                        mark_progress(catalog);selected=0;
+                        for(size_t i=0;i<catalog.entries.size();++i)if(catalog.entries[i].content_id==entry.content_id)selected=i;
+                        const bool done=playback_history.finished(entry.content_id);
+                        if(done&&selected+1<catalog.entries.size()){++selected;status="Terminaste el anterior. Siguiente seleccionado; A: reproducir.";}
+                        else status=done?"Viste el ultimo episodio disponible.":"Aqui te quedaste. A: continuar; flechas: otros episodios.";
+                    }else xs::trace("recent:open_series_failed");
+                    redraw=true;
+                    if(open_only||catalog.title=="Inicio")continue;
+                    entry=catalog.entries[selected]; // play the episode inside its series list
                 }
                 if(entry.kind==xs::EntryKind::Category||entry.kind==xs::EntryKind::Section||
                    entry.kind==xs::EntryKind::VodCategory||entry.kind==xs::EntryKind::Asset||
@@ -241,17 +306,20 @@ int main(int argc,char** argv){
                     xs::BrowseResult result;load([&]{result=entry.kind==xs::EntryKind::Category?xs::service_channels(session,entry.column_id):xs::service_browse(session,entry);},"Cargando "+entry.title+"...");status=result.status;
                     if(result.catalog.title.empty())result.catalog.title=entry.title;
                     xs::trace(result.ok?"catalog:browse_loaded":"catalog:browse_failed");
-                    if(result.ok){history.emplace_back(std::move(catalog),selected);catalog=std::move(result.catalog);selected=0;}
+                    if(result.ok){history.emplace_back(std::move(catalog),selected);catalog=std::move(result.catalog);selected=0;mark_progress(catalog);}
                 }else if(!full_memory)status="Abre hbmenu manteniendo R sobre un juego para probar el video.";
                 else{
                     int variant=0;double start=0,speed=playback_history.speed,volume=playback_history.volume;bool auto_next=playback_history.auto_next,keep_paused=false;
+                    int auto_reloads=0;Uint32 last_auto_reload=0;std::string subtitle_language;
                     std::vector<size_t> queue;
                     for(size_t i=0;i<catalog.entries.size();++i)if(catalog.entries[i].kind==entry.kind&&(entry.series_id.empty()||catalog.entries[i].series_id==entry.series_id))queue.push_back(i);
                     bool continue_playback=true;
                     while(continue_playback){continue_playback=false;const auto current=catalog.entries[selected];
                         std::string source=current.source;std::vector<std::pair<std::string,std::string>> headers;
-                        xs::PlaybackOptions options;options.font=view.font;options.title=current.title;
+                        xs::PlaybackOptions options;options.font=view.font;const std::string show=!current.show.empty()?current.show:(current.kind==xs::EntryKind::Episode&&catalog.title!="Recientes"&&catalog.title!="Favoritos")?catalog.title:"";
+                        options.title=show.empty()||current.title.rfind("Reproducir: ",0)==0?current.title:show+" | "+current.title;
                         options.variant=variant;options.start=start>0?start:current.kind==xs::EntryKind::Episode?playback_history.position(current.content_id):0;options.speed=speed;options.volume=volume;options.auto_next=auto_next;options.paused=keep_paused;
+                        options.preferred_subtitle=subtitle_language;options.auto_reloads=auto_reloads;options.last_auto_reload=last_auto_reload;
                         if(current.kind==xs::EntryKind::Channel||current.kind==xs::EntryKind::Episode){
                             status="Solicitando fuente del video...";view.draw(catalog,selected,status,full_memory);
                             xs::SourceResult result;xs::trace("catalog:source_begin");load([&]{result=xs::service_source(session,current,variant);},"Preparando reproduccion...");status=result.status;
@@ -266,17 +334,25 @@ int main(int argc,char** argv){
                         for(size_t i=0;i<queue.size();++i){options.items.push_back(catalog.entries[queue[i]].title);if(queue[i]==selected)options.item=static_cast<int>(i);}
                         if(!source.empty()){
                             xs::PlaybackOutcome outcome;status=xs::play(source,view.renderer,headers,options,&outcome);xs::trace("main:video_returned");
-                            speed=outcome.speed;volume=outcome.volume;auto_next=outcome.auto_next;
-                            if(status.empty()&&(outcome.position>3||outcome.ended)&&!saved.remember(current))xs::trace("catalog:recent_save_failed");
-                            if(status.empty()&&!playback_history.save(current.kind==xs::EntryKind::Episode?current.content_id:"",outcome.position,outcome.speed,outcome.volume,outcome.auto_next,outcome.ended))xs::trace((std::string("play:history_save_failed stage=")+playback_history.last_error).c_str());
+                            speed=outcome.speed;volume=outcome.volume;auto_next=outcome.auto_next;subtitle_language=outcome.subtitle_language;
+                            xs::Entry remembered=current;remembered.display_title.clear();remembered.badge.clear();
+                            if(remembered.kind==xs::EntryKind::Episode&&remembered.show.empty())remembered.show=show;
+                            if(status.empty()&&(outcome.position>3||outcome.ended)&&!saved.remember(remembered))xs::trace("catalog:recent_save_failed");
+                            if(status.empty()&&!playback_history.save(current.kind==xs::EntryKind::Episode?current.content_id:"",outcome.position,outcome.speed,outcome.volume,outcome.auto_next,outcome.ended,outcome.duration))xs::trace((std::string("play:history_save_failed stage=")+playback_history.last_error).c_str());
                             if(outcome.ended&&auto_next&&!current.series_id.empty()&&static_cast<size_t>(options.item+1)<queue.size())outcome.next_item=options.item+1;
+                            if(outcome.auto_reloaded){++auto_reloads;last_auto_reload=SDL_GetTicks();}
                             if(outcome.next_variant>=0){variant=outcome.next_variant;start=outcome.position;keep_paused=outcome.paused;continue_playback=true;}
                             else if(outcome.next_item>=0&&static_cast<size_t>(outcome.next_item)<queue.size()){
-                                selected=queue[outcome.next_item];variant=0;start=0;keep_paused=false;continue_playback=true;
+                                selected=queue[outcome.next_item];variant=0;start=0;keep_paused=false;continue_playback=true;auto_reloads=0;last_auto_reload=0;
                             }
                             if(status.empty())status="Video finalizado. A: reproducir; X: buscar.";
                         }
                     }
+                    // Refresh the minute shown on each card after watching from Recientes.
+                    if(catalog.title=="Recientes"){const std::string id=catalog.entries[selected].content_id;catalog=recents();selected=0;
+                        for(size_t i=0;i<catalog.entries.size();++i)if(catalog.entries[i].content_id==id)selected=i;}
+                    else if(catalog.title=="Inicio"){catalog=home();selected=std::min(selected,catalog.entries.empty()?0:catalog.entries.size()-1);}
+                    else mark_progress(catalog);
 
                 }
                 redraw=true;

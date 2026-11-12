@@ -1,11 +1,11 @@
-# Xuper TV by JonaRuacho
+# XuperTV NX
 
 Cliente homebrew nativo para Nintendo Switch. Proyecto comunitario en C++17,
-libnx, SDL2 y libmpv. Version del codigo: **0.14.1**.
+libnx, SDL2 y libmpv. Version del codigo: **0.14.3**.
 
 ## Descargar para usar en Switch
 
-Ve a [**Releases**](https://github.com/jonaruacho/Xuper-TV-by-JonaRuacho/releases/latest) y descarga el ZIP terminado en **_Switch.zip**. Copia su
+Ve a [**Releases**](https://github.com/samuel3mn2/Xuper-TV-by-JonaRuacho/releases/latest) y descarga el ZIP terminado en **_Switch.zip**. Copia su
 carpeta `switch` a la SD y abre hbmenu con memoria completa. Consulta
 [INSTALAR.md](INSTALAR.md). El primer inicio genera una identidad local propia;
 no necesitas compilar ni configurar desde una APK para este paquete.
@@ -18,7 +18,7 @@ no necesitas compilar ni configurar desde una APK para este paquete.
 - Favoritos persistentes, continuar viendo y opciones de reproduccion.
 - Audio, subtitulos, fuentes/calidades y navegacion de episodios segun los
   datos y formatos compatibles que entregue el servicio.
-- Apoyo voluntario: [Mercado Pago](https://link.mercadopago.com.mx/xuperbyjonaruacho).
+- Recientes: lo ultimo que viste y el capitulo y minuto donde te quedaste.
 
 El usuario confirma reproduccion de TV, peliculas y series con la base 0.13.
 La interfaz 0.14 paso pruebas locales; requiere validacion en consola. Consulta
@@ -92,5 +92,5 @@ La licencia del cliente no cambia las obligaciones de esas bibliotecas. Antes
 de distribuir un binario enlazado, revisa las licencias y fuentes de la variante
 exacta de libmpv/FFmpeg y demas dependencias que hayas utilizado.
 
-Proyecto **by Jona Ruacho**. No es una aplicacion oficial de Nintendo ni del
+Fork comunitario, basado en el proyecto original de Jona Ruacho (licencia MIT). No es una aplicacion oficial de Nintendo ni del
 proveedor Android. No se publica la APK ni sus bibliotecas propietarias.

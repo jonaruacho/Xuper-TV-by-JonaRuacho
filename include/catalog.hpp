@@ -17,6 +17,10 @@ struct Entry {
     std::string query{};
     int page=1;
     std::string artwork{},artwork_cache{},description{};
+    std::string show{};            // series or movie name, kept for Recientes
+    std::string display_title{},badge{}; // UI only, never persisted
+    std::string group{};           // home screen row this entry belongs to (UI only)
+    double progress=-1;            // 0..1 watched, -1 unknown (UI only)
 };
 struct Catalog { std::vector<Entry> entries; std::vector<std::string> warnings; std::string title{},description{},artwork{},artwork_cache{}; };
 std::string artwork_key(const std::string& url);

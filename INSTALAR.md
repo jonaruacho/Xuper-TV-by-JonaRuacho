@@ -1,6 +1,6 @@
-# Instalar Xuper TV by JonaRuacho
+# Instalar XuperTV NX
 
-Entra a Releases y descarga **Xuper_TV_by_JonaRuacho_0.14.1_Switch.zip**.
+Entra a Releases y descarga **XuperTV_NX_0.14.3_Switch.zip**.
 Descomprimelo y copia la carpeta `switch` completa a la raiz de tu tarjeta SD.
 Abre hbmenu con memoria completa, manteniendo R al iniciar un juego, y abre
 XuperSwitch. No necesitas compilar ni instalar Python para usar este paquete.

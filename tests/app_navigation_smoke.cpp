@@ -20,5 +20,5 @@ int main(int argc,char** argv){
     });
     const auto result=xuperswitch_app_main(argc,argv);input.join();assert(result==0);
     assert(file_text("diagnostico.log").find("main:exit")!=std::string::npos);
-    std::cout<<"App: automatic startup, unified keyboard search, favorite add/remove, home, touch sidebar, donation and clean exit passed\n";
+    std::cout<<"App: automatic startup, unified keyboard search, favorite add/remove, home, touch sidebar and clean exit passed\n";
 }
