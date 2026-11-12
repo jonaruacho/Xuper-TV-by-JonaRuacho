@@ -30,6 +30,7 @@ struct PlaybackOutcome {
     bool ended=false,paused=false;
     bool auto_next=true;
     bool auto_reloaded=false;
+    double duration=0;
     std::string subtitle_language; // service subtitle active at exit, empty if none
 };
 // Playback uses libmpv's CPU render API and the persistent SDL2 renderer.

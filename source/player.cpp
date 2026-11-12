@@ -418,7 +418,7 @@ std::string play(const std::string& source,SDL_Renderer* renderer,const std::vec
     result.auto_next=auto_next;
     // A classified network message can arrive after END_FILE in the same queue drain.
     if(!error.empty()&&!media_hint.empty())error="No se pudo abrir el video: "+media_hint;
-    result.position=property("time-pos");result.speed=property("speed");result.volume=property("volume");result.paused=flag("pause");
+    result.position=property("time-pos");result.duration=property("duration");result.speed=property("speed");result.volume=property("volume");result.paused=flag("pause");
     result.audio_delay=property("audio-delay");result.sub_delay=property("sub-delay");result.sub_scale=property("sub-scale");result.aspect=property("video-aspect-override");
     mpv_get_property(mpv,"aid",MPV_FORMAT_INT64,&result.audio);mpv_get_property(mpv,"sid",MPV_FORMAT_INT64,&result.subtitle);
     if(outcome)*outcome=result;
