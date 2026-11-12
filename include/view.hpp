@@ -13,6 +13,7 @@ public:
     SDL_Window* window=nullptr;SDL_Renderer* renderer=nullptr;TTF_Font* font=nullptr;
     // nav_focus: tab with focus in the top bar (-1 when focus is on the content).
     int nav_focus=-1,active_nav=0;bool favorite=false;
+    int wish_state=-1; // Mi lista button: -1 hidden, 0 add, 1 already saved
     bool open(std::string& error);
     void draw(const Catalog& catalog,size_t selected,const std::string& status,bool full_memory);
     void splash(const std::string& status);
@@ -21,13 +22,14 @@ public:
     int page_size(const Catalog& catalog)const;
     // Next selection for a d-pad move; -1 means "move up into the tab bar".
     long move(const Catalog& catalog,size_t selected,int dx,int dy)const;
-    // -8 favorite action; -2..-7 tabs; -1 no hit; >=0 catalogue index. Uses the last draw.
+    static constexpr int tab_count=7;
+    // -20 favorite / Mi lista action; -2..-8 tabs; -1 no hit; >=0 catalogue index. Uses the last draw.
     int hit(const Catalog& catalog,size_t selected,int x,int y)const;
     void close();~View(){close();}
 private:
     TTF_Font *small=nullptr,*large=nullptr,*heading=nullptr;
     std::unique_ptr<Artwork> images;
-    SDL_Rect tabs[6]{};
+    SDL_Rect tabs[tab_count]{};
     std::vector<std::pair<SDL_Rect,int>> hits;
     void text(int x,int y,const std::string& message,SDL_Color color,int width=1160,TTF_Font* type=nullptr,int max_height=0);
     int text_width(const std::string& message,TTF_Font* type);
@@ -39,6 +41,7 @@ private:
     void top_bar();void footer(const std::string& status,const std::string& hints);
     void draw_home(const Catalog& c,size_t selected);
     void draw_grid(const Catalog& c,size_t selected,bool full_memory);
+    void draw_wide_card(const Entry& e,SDL_Rect r,bool chosen);
     bool image(const std::string& url,const std::string& key,SDL_Rect bounds,bool cover=false);
 };
 }

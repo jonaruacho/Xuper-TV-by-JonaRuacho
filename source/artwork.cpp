@@ -118,7 +118,7 @@ SDL_Texture* Artwork::get(const std::string& url,const std::string& key){
 }
 bool Artwork::poll(){auto& p=*impl;std::deque<Impl::Ready> ready;{std::lock_guard<std::mutex> lock(p.mutex);ready.swap(p.ready);}
     for(auto& r:ready){p.pending.erase(r.key);if(!r.surface){p.failed.insert(r.key);continue;}auto* t=SDL_CreateTextureFromSurface(p.renderer,r.surface);SDL_FreeSurface(r.surface);if(!t){p.failed.insert(r.key);continue;}
-        if(p.textures.size()>=18){auto old=std::min_element(p.textures.begin(),p.textures.end(),[](const auto& a,const auto& b){return a.second.used<b.second.used;});SDL_DestroyTexture(old->second.value);p.textures.erase(old);}
+        if(p.textures.size()>=32){auto old=std::min_element(p.textures.begin(),p.textures.end(),[](const auto& a,const auto& b){return a.second.used<b.second.used;});SDL_DestroyTexture(old->second.value);p.textures.erase(old);}
         p.textures.emplace(r.key,Impl::Texture{t,++p.clock});
     }return !ready.empty();
 }

@@ -107,11 +107,24 @@ int main(int argc,char** argv){
         if(!recent.empty()){xs::Entry hero=recent[0];hero.group="hero";c.entries.push_back(hero);
             if(!hero.series_id.empty()){xs::Entry episodes=hero;episodes.query="open_series";c.entries.push_back(episodes);}}
         for(size_t i=1;i<recent.size()&&i<=12;++i){auto e=recent[i];e.group="Recientes";c.entries.push_back(std::move(e));}
+        size_t wishes=0;for(auto e:saved.wishlist){if(wishes++>=12)break;e.group="Mi lista";c.entries.push_back(std::move(e));}
         size_t favorites=0;for(auto e:saved.favorites){if(favorites++>=12)break;e.group="Favoritos en vivo";c.entries.push_back(std::move(e));}
         xs::Entry tv;tv.title="TV en vivo";tv.kind=xs::EntryKind::LiveSection;tv.group="Explorar";c.entries.push_back(tv);
         for(const char* type:{"1","0"}){auto i=std::find_if(root_catalog.entries.begin(),root_catalog.entries.end(),[&](const xs::Entry& e){return e.kind==xs::EntryKind::Section&&e.program_type==type;});
             if(i!=root_catalog.entries.end()){auto e=*i;e.group="Explorar";c.entries.push_back(std::move(e));}}
         return c;};
+    auto wishlist=[&]{xs::Catalog c;c.title="Mi lista";c.entries=saved.wishlist;return c;};
+    // The movie or series a Mi lista action refers to: an Asset card, or the series/movie
+    // whose episode list is open.
+    auto wish_target=[&](xs::Entry& asset)->bool{
+        if(catalog.entries.empty())return false;const auto& e=catalog.entries[std::min(selected,catalog.entries.size()-1)];
+        if(e.kind==xs::EntryKind::Asset){asset=e;asset.group.clear();asset.query.clear();return true;}
+        if(e.kind!=xs::EntryKind::Episode||catalog.title=="Recientes"||catalog.title=="Inicio")return false;
+        if(!history.empty()){const auto& prev=history.back();
+            if(prev.second<prev.first.entries.size()&&prev.first.entries[prev.second].kind==xs::EntryKind::Asset){asset=prev.first.entries[prev.second];asset.group.clear();return true;}}
+        if(!e.series_id.empty()){asset={};asset.kind=xs::EntryKind::Asset;asset.content_id=e.series_id;asset.program_type="0";asset.column_id=e.column_id;
+            asset.title=catalog.title;asset.artwork=catalog.artwork;asset.artwork_cache=catalog.artwork_cache;return true;}
+        return false;};
     auto load=[&](auto task,const std::string& message,bool splash=false){
         cancel_task=false;task_done=0;task_total=0;std::atomic<bool> complete{false};
         const auto started=SDL_GetTicks();if(splash)view.splash(message);
@@ -134,7 +147,8 @@ int main(int argc,char** argv){
         if(!appletMainLoop())break;
 #endif
         if(view.poll_images())redraw=true;
-        if(redraw){view.favorite=!catalog.entries.empty()&&saved.contains(catalog.entries[std::min(selected,catalog.entries.size()-1)]);view.draw(catalog,selected,status,full_memory);redraw=false;}
+        if(redraw){view.favorite=!catalog.entries.empty()&&saved.contains(catalog.entries[std::min(selected,catalog.entries.size()-1)]);
+            {xs::Entry asset;view.wish_state=wish_target(asset)?(saved.wished(asset)?1:0):-1;}view.draw(catalog,selected,status,full_memory);redraw=false;}
         bool up=false,down=false,left=false,right=false,play=false,reload=false,login=autoload,search=false,back=false,next=false,previous=false,toggle_favorite=false;int nav_action=-1;autoload=false;SDL_Event event;
         while(SDL_PollEvent(&event)){
             if(event.type==SDL_QUIT)running=false;
@@ -143,7 +157,7 @@ int main(int argc,char** argv){
             if(event.type==SDL_MOUSEBUTTONDOWN||event.type==SDL_FINGERDOWN){
                 const int x=event.type==SDL_FINGERDOWN?int(event.tfinger.x*1280):event.button.x,y=event.type==SDL_FINGERDOWN?int(event.tfinger.y*720):event.button.y;
                 const int hit=view.hit(catalog,selected,x,y);
-                if(hit==-8)toggle_favorite=true;else if(hit<=-2)nav_action=-hit-2;else if(hit>=0){selected=static_cast<size_t>(hit);view.nav_focus=-1;play=true;}
+                if(hit==-20)toggle_favorite=true;else if(hit<=-2)nav_action=-hit-2;else if(hit>=0){selected=static_cast<size_t>(hit);view.nav_focus=-1;play=true;}
             }
             if(event.type==SDL_KEYDOWN){
                 switch(event.key.keysym.sym){
@@ -176,7 +190,7 @@ int main(int argc,char** argv){
         next|=(buttons&HidNpadButton_R)!=0;previous|=(buttons&HidNpadButton_L)!=0;
 #endif
         if(view.nav_focus>=0){
-            if(left){view.nav_focus=(view.nav_focus+5)%6;redraw=true;}if(right){view.nav_focus=(view.nav_focus+1)%6;redraw=true;}
+            if(left){view.nav_focus=(view.nav_focus+xs::View::tab_count-1)%xs::View::tab_count;redraw=true;}if(right){view.nav_focus=(view.nav_focus+1)%xs::View::tab_count;redraw=true;}
             if(down||back){view.nav_focus=-1;redraw=true;back=false;}if(play){nav_action=view.nav_focus;play=false;}
             up=down=left=right=next=previous=false;
         }else if(up&&catalog.entries.empty()){view.nav_focus=view.active_nav;up=false;redraw=true;}
@@ -202,6 +216,8 @@ int main(int argc,char** argv){
         }
         if(nav_action>0){
             if(nav_action==5){history.emplace_back(catalog,selected);catalog=recents();selected=0;view.active_nav=5;view.nav_focus=-1;redraw=true;continue;}
+            if(nav_action==6){history.emplace_back(catalog,selected);catalog=wishlist();selected=0;view.active_nav=6;view.nav_focus=-1;
+                status=catalog.entries.empty()?"Guarda peliculas y series con R3 para verlas despues.":"A: abrir   R3: quitar de Mi lista";redraw=true;continue;}
             if(nav_action==4){history.emplace_back(catalog,selected);catalog={};catalog.title="Favoritos";catalog.entries=saved.favorites;selected=0;view.active_nav=4;view.nav_focus=-1;redraw=true;}
             else if(session){
                 if(nav_action==1){history.emplace_back(catalog,selected);catalog={};catalog.title="TV en vivo";for(const auto& e:root_catalog.entries)if(e.kind==xs::EntryKind::Category)catalog.entries.push_back(e);selected=0;}
@@ -212,8 +228,13 @@ int main(int argc,char** argv){
             }else{status="Sin sesion. Pulsa Y para reintentar la conexion.";redraw=true;}
         }
         if(toggle_favorite&&!catalog.entries.empty()){
-            const auto entry=catalog.entries[selected];
-            if(entry.kind!=xs::EntryKind::Channel)status="Selecciona un canal para guardarlo en Favoritos.";
+            const auto entry=catalog.entries[selected];xs::Entry asset;
+            if(entry.kind!=xs::EntryKind::Channel&&wish_target(asset)){
+                if(!saved.toggle_wish(asset))status="No se pudo guardar Mi lista en la SD.";
+                else{status=saved.wished(asset)?"Agregado a Mi lista: "+asset.title:"Quitado de Mi lista: "+asset.title;
+                    if(catalog.title=="Mi lista"){catalog=wishlist();selected=catalog.entries.empty()?0:std::min(selected,catalog.entries.size()-1);}}
+            }
+            else if(entry.kind!=xs::EntryKind::Channel)status="R3 guarda canales en Favoritos y peliculas o series en Mi lista.";
             else if(!saved.toggle(entry))status="No se pudo guardar Favoritos en la SD.";
             else{status=saved.contains(entry)?"Canal guardado en Favoritos.":"Canal quitado de Favoritos.";if(catalog.title=="Favoritos"){catalog.entries=saved.favorites;selected=catalog.entries.empty()?0:std::min(selected,catalog.entries.size()-1);}}
             redraw=true;

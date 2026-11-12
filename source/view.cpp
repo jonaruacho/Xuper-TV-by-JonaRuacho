@@ -8,9 +8,11 @@ namespace {
 constexpr SDL_Color ink{10,14,28,255},card{21,27,51,255},card_alt{30,40,74,255},line{35,45,82,255},
     white{242,245,250,255},muted{142,154,184,255},red{232,36,47,255},red_deep{70,20,34,255},
     cyan{47,212,240,255},cyan_ink{4,40,52,255},track{42,51,84,255},gold{255,207,113,255};
-const char* nav[]={"Inicio","TV en vivo","Peliculas","Series","Favoritos","Recientes"};
+const char* nav[]={"Inicio","TV en vivo","Peliculas","Series","Favoritos","Recientes","Mi lista"};
 const char* label(EntryKind kind,const std::string& type){switch(kind){case EntryKind::Channel:return "EN VIVO";case EntryKind::Asset:return type=="0"?"SERIE":"PELICULA";case EntryKind::Episode:return "REPRODUCIR";case EntryKind::VodPage:case EntryKind::SearchPage:return "SIGUIENTE PAGINA";case EntryKind::Category:case EntryKind::VodCategory:return "CATEGORIA";default:return "EXPLORAR";}}
 bool detail(const Catalog& c){return !c.entries.empty()&&c.entries[0].kind==EntryKind::Episode&&c.entries[0].group.empty();}
+// Recientes and Mi lista: big cards with the cover on the left.
+bool wide(const Catalog& c){return !c.entries.empty()&&c.entries[0].group.empty()&&(c.title=="Recientes"||c.title=="Mi lista");}
 bool is_home(const Catalog& c){return !c.entries.empty()&&!c.entries[0].group.empty();}
 struct Row{std::string title;size_t start,len;};
 std::vector<Row> rows_of(const Catalog& c){std::vector<Row> rows;
@@ -34,7 +36,7 @@ bool View::open(std::string& error){
 #endif
     font=TTF_OpenFont(path,22);small=TTF_OpenFont(path,17);large=TTF_OpenFont(path,46);heading=TTF_OpenFont(path,30);
     if(!font||!small||!large||!heading){error=TTF_GetError();return false;}
-    int x=262;for(int i=0;i<6;++i){const int w=text_width(nav[i],font)+34;tabs[i]={x,16,w,40};x+=w+8;}
+    int x=244;for(int i=0;i<tab_count;++i){const int w=text_width(nav[i],font)+28;tabs[i]={x,16,w,40};x+=w+6;}
     images=std::make_unique<Artwork>(renderer);trace("view:ready");return true;
 }
 void View::rect(SDL_Rect r,SDL_Color c){SDL_SetRenderDrawColor(renderer,c.r,c.g,c.b,c.a);SDL_RenderFillRect(renderer,&r);}
@@ -81,12 +83,12 @@ void View::splash(const std::string& status){
 void View::top_bar(){
     rect({0,0,1280,72},{8,11,24,255});rect({0,72,1280,1},line);
     brand(34,22);
-    for(int i=0;i<6;++i){const SDL_Rect r=tabs[i];const bool active=active_nav==i,focus=nav_focus==i;
+    for(int i=0;i<tab_count;++i){const SDL_Rect r=tabs[i];const bool active=active_nav==i,focus=nav_focus==i;
         if(focus)glow(r,r.h/2);
         if(active)round(r,r.h/2,red);else if(focus)round(r,r.h/2,card_alt);
-        text(r.x+17,r.y+7,nav[i],active||focus?white:muted,r.w,font,30);
+        text(r.x+14,r.y+7,nav[i],active||focus?white:muted,r.w,font,30);
         hits.push_back({r,-2-i});}
-    text(1112,26,"X  Buscar",muted,150,small);
+    text(1176,26,"X Buscar",muted,100,small);
 }
 void View::footer(const std::string& status,const std::string& hints){
     rect({0,646,1280,1},line);
@@ -94,6 +96,7 @@ void View::footer(const std::string& status,const std::string& hints){
     text(34,686,hints,white,1212,small,24);
 }
 int View::columns(const Catalog& c)const{
+    if(wide(c))return 3;
     if(!c.entries.empty()&&c.entries[0].kind==EntryKind::Asset)return 5;
     if(!c.entries.empty()&&c.entries[0].kind==EntryKind::Channel)return 4;
     return 3;
@@ -192,9 +195,17 @@ void View::draw_grid(const Catalog& c,size_t selected,bool full_memory){
     if(!full_memory)text(36,124,"Modo Album: abre con R sobre un juego para reproducir.",gold,950,small,24);
     else if(!c.entries.empty())text(36,124,std::to_string(c.entries.size())+" opciones  |  "+label(c.entries[std::min(selected,c.entries.size()-1)].kind,c.entries[std::min(selected,c.entries.size()-1)].program_type),muted,900,small,24);
     if(!c.entries.empty()&&c.entries[selected].kind==EntryKind::Channel){const SDL_Rect fav{1086,92,160,34};
-        round(fav,17,favorite?red:card_alt);text(fav.x+16,fav.y+7,favorite?"Quitar favorito":"+ Favorito",white,140,small,24);hits.push_back({fav,-8});}
-    else if(!c.entries.empty())text(1150,96,std::to_string(selected+1)+" / "+std::to_string(c.entries.size()),muted,120,small,24);
+        round(fav,17,favorite?red:card_alt);text(fav.x+16,fav.y+7,favorite?"Quitar favorito":"+ Favorito",white,140,small,24);hits.push_back({fav,-20});}
+    else if(wish_state>=0){const std::string caption=wish_state?"En Mi lista  (R3)":"+ Mi lista  (R3)";const SDL_Rect wish{1246-text_width(caption,small)-32,92,text_width(caption,small)+32,34};
+        round(wish,17,wish_state?red:card_alt);text(wish.x+16,wish.y+7,caption,white,wish.w,small,24);hits.push_back({wish,-20});}
+    if(!c.entries.empty()&&c.entries[selected].kind!=EntryKind::Channel&&wish_state<0)text(1150,96,std::to_string(selected+1)+" / "+std::to_string(c.entries.size()),muted,120,small,24);
     int top=156;
+    if(wide(c)){
+        const int w=(1212-2*gap)/3,h=208;const size_t start=(selected/6)*6;
+        for(size_t i=start;i<c.entries.size()&&i<start+6;++i){const int k=static_cast<int>(i-start);
+            const SDL_Rect r{left+(k%3)*(w+gap),top+(k/3)*(h+gap),w,h};draw_wide_card(c.entries[i],r,i==selected&&nav_focus<0);hits.push_back({r,static_cast<int>(i)});}
+        return;
+    }
     if(detail(c)){
         round({34,154,1212,132},14,card);rect({34,170,5,100},red);
         round({52,162,84,116},8,{30,42,80,255});image(c.artwork,c.artwork_cache,{54,164,80,112});
@@ -211,19 +222,39 @@ void View::draw_grid(const Catalog& c,size_t selected,bool full_memory){
         const bool poster=e.kind==EntryKind::Asset,channel=e.kind==EntryKind::Channel;
         const int art_h=poster?h-62:channel?h-52:detail(c)?70:124;
         round({x+6,y+6,w-12,art_h},9,{30,42,80,255});
-        if(e.artwork_cache.empty()||!image(e.artwork,e.artwork_cache,{x+10,y+9,w-20,art_h-6})){
+        const bool cover=!poster&&!channel&&e.kind==EntryKind::Episode;
+        if(e.artwork_cache.empty()||!image(e.artwork,e.artwork_cache,cover?SDL_Rect{x+6,y+6,w-12,art_h}:SDL_Rect{x+10,y+9,w-20,art_h-6},cover)){
             const char* icon=poster?(e.program_type=="0"?"SERIES":"CINE"):channel?"TV":e.kind==EntryKind::Favorites?"*":e.kind==EntryKind::Resume?">":e.kind==EntryKind::SearchAction?"?":e.kind==EntryKind::Section?(e.program_type=="0"?"SERIES":"CINE"):e.kind==EntryKind::LiveSection?"EN VIVO":e.kind==EntryKind::Episode?">":"+";
             text(x+16,y+std::max(12,(art_h-36)/2),icon,chosen?cyan:muted,w-30,heading,45);
         }
         if(poster||channel){const int tw=text_width(label(e.kind,e.program_type),small)+16;round({x+10,y+10,tw,24},12,poster?red:cyan);
             text(x+18,y+12,label(e.kind,e.program_type),poster?white:cyan_ink,tw,small,22);}
         if(e.kind==EntryKind::Episode&&e.progress>=0)progress_bar({x+10,y+art_h+2,w-20,4},e.progress,red);
-        text(x+12,y+art_h+10,e.display_title.empty()?e.title:e.display_title,white,w-24,poster||channel?small:font,poster?46:channel?42:60);
+        text(x+12,y+art_h+10,e.display_title.empty()?e.title:e.display_title,white,w-24,poster||channel||e.kind==EntryKind::Episode?small:font,poster?46:channel?42:std::max(20,h-art_h-40));
         if(!poster&&!channel)text(x+12,y+h-26,e.badge.empty()?label(e.kind,e.program_type):e.badge,e.badge.empty()?muted:cyan,w-24,small,22);
         if(chosen&&favorite&&channel){round({x+w-40,y+10,28,24},12,red);text(x+w-32,y+11,"*",white,24,font);}
         hits.push_back({cr,static_cast<int>(i)});
     }
-    if(c.entries.empty())text(36,200,c.title=="Favoritos"?"Tus canales favoritos apareceran aqui.\nSelecciona un canal y pulsa el stick derecho para guardarlo.":c.title=="Recientes"?"Aqui aparecera lo que veas, con el capitulo y el minuto donde te quedaste.":"No hay contenido para mostrar.",muted,900,font,150);
+    if(c.entries.empty())text(36,200,c.title=="Mi lista"?"Tu lista esta vacia.\nEn una pelicula o serie pulsa R3 (o toca + Mi lista) para guardarla aqui.":c.title=="Favoritos"?"Tus canales favoritos apareceran aqui.\nSelecciona un canal y pulsa el stick derecho para guardarlo.":c.title=="Recientes"?"Aqui aparecera lo que veas, con el capitulo y el minuto donde te quedaste.":"No hay contenido para mostrar.",muted,900,font,150);
+}
+void View::draw_wide_card(const Entry& e,SDL_Rect r,bool chosen){
+    if(chosen)glow(r,14);
+    round(r,14,chosen?card_alt:card);
+    const SDL_Rect art{r.x+10,r.y+10,128,r.h-20};round(art,9,{30,42,80,255});
+    if(e.artwork_cache.empty()||!image(e.artwork,e.artwork_cache,art))text(art.x+40,art.y+art.h/2-20,e.kind==EntryKind::Asset&&e.program_type=="0"?"SE":">",muted,60,heading);
+    const int tx=r.x+154,tw=r.w-168;
+    if(e.kind==EntryKind::Asset){
+        text(tx,r.y+14,e.title,white,tw,font,84);
+        const char* kind=e.program_type=="0"?"SERIE":"PELICULA";const int kw=text_width(kind,small)+16;
+        round({tx,r.y+r.h-74,kw,24},12,e.program_type=="0"?cyan:red);text(tx+8,r.y+r.h-72,kind,e.program_type=="0"?cyan_ink:white,kw,small,22);
+        text(tx,r.y+r.h-40,chosen?"A: abrir   R3: quitar":"",cyan,tw,small,22);
+        return;
+    }
+    const std::string episode=plain_title(e);
+    text(tx,r.y+14,e.show.empty()?episode:e.show,white,tw,font,56);
+    if(!e.show.empty())text(tx,r.y+74,episode,muted,tw,small,44);
+    text(tx,r.y+r.h-50,e.badge,cyan,tw,small,22);
+    progress_bar({tx,r.y+r.h-22,tw,6},e.progress,red);
 }
 void View::draw(const Catalog& c,size_t selected,const std::string& status,bool full_memory){
     poll_images();hits.clear();background();
