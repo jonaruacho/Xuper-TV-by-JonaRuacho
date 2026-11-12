@@ -22,11 +22,11 @@ LDFLAGS := $(ARCH) -specs=$(DEVKITPRO)/libnx/switch.specs \
     -L$(DEVKITPRO)/libnx/lib -Wl,-Map,$(TARGET).map
 LIBS := $(shell $(PKG_CONFIG) --static --libs $(PKGS)) -lpng16 -ljpeg -lwebp -lnx
 OBJECTS := build/main.o build/catalog.o build/player.o build/codec.o build/ranger_codec.o build/service.o build/view.o build/artwork.o build/trace.o
-NROFLAGS := --nacp=$(TARGET).nacp --icon=$(DEVKITPRO)/libnx/default_icon.jpg
+NROFLAGS := --nacp=$(TARGET).nacp --icon=icon.jpg
 .DEFAULT_GOAL := all
 .PHONY: all clean
 all: $(TARGET).nro
-$(TARGET).nro: $(TARGET).elf $(TARGET).nacp
+$(TARGET).nro: $(TARGET).elf $(TARGET).nacp icon.jpg
 $(TARGET).nacp: Makefile
 $(TARGET).elf: $(OBJECTS)
 	$(CXX) $(LDFLAGS) -o $@ $(OBJECTS) $(LIBS)
